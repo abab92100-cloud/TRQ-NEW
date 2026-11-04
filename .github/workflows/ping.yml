@@ -3,7 +3,42 @@ on:
   push:
     branches: ["main"]
 jobs:
-  t:
+  j_node:
     runs-on: ubuntu-latest
     steps:
-      - run: echo hello-from-ping && uname -a && which convert curl patch || true
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node -v
+  j_java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: java -version
+  j_assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
+          which convert curl patch
+          curl -fsSL -o /tmp/w.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar" && echo JAR_OK
+          curl -fsSL -o /tmp/icon.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" && echo ICON_OK
+          convert /tmp/icon.png -resize 48x48 /tmp/icon48.png && echo CONVERT_OK
+  j_engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq curl patch >/dev/null 2>&1 || true
+          sh tools/fetch-engine.sh && echo ENGINE_OK && wc -c src/engine.ts
+  j_npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq curl patch >/dev/null 2>&1 || true
+          sh tools/fetch-engine.sh
+          npm install && echo NPM_OK
