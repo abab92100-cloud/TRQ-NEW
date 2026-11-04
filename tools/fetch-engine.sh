@@ -1,11 +1,11 @@
 #!/bin/sh
 # Restores src/engine.ts in this repo:
-#  1. downloads the pinned original engine.ts from KING-210 (commit 7c89a71)
+#  1. downloads the pinned original engine.ts from KING-210 (commit a84b2b11, blob bb64118 = patch base)
 #  2. decodes the split parts engine.patch.gz.b64.* -> engine.patch
 #  3. applies the patch (KING-trading security fixes + ladder strategy)
 # Requires: curl + patch + base64  (Termux: pkg install -y patch coreutils)
 set -e
-SRC="https://raw.githubusercontent.com/abab92100-cloud/KING-210/7c89a71d6ec1c72dbf35aeddbff60bdb0675e0c40/AB-KING/app/trg-new/src/engine.ts"
+SRC="https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/AB-KING/app/trg-new/src/engine.ts"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 mkdir -p src
