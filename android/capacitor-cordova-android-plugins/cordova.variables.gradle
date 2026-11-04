@@ -1,0 +1,4 @@
+// GENERATED FILE - DO NOT EDIT (committed because CI does not run `cap update`)
+ext {
+    cdvMinSdkVersion = 24
+}
