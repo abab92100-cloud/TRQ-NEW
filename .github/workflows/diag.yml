@@ -8,44 +8,32 @@ jobs:
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: 21 }
-      - name: run build steps with log capture
+      - name: probe with log capture
         continue-on-error: true
         run: |
           exec > >(tee /tmp/diag.log) 2>&1
           set -x
           sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" || convert -size 1024x1024 xc:'#0a0e14' -fill '#f5c518' -draw 'circle 512,512 512,150' /tmp/icon-master.png
-          convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
+          which convert; convert -version | head -1
+          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" && echo ICON_OK
+          convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png && echo RESIZE_OK
+          RES=android/app/src/main/res
+          mkdir -p $RES/mipmap-mdpi
+          convert /tmp/icon-master.png -resize 48x48 $RES/mipmap-mdpi/ic_launcher.png && echo MIPMAP_OK
+          convert -size 48x48 xc:none \( /tmp/icon-master.png -resize 31x31 \) -gravity center -composite $RES/mipmap-mdpi/ic_launcher_foreground.png && echo FG_OK
           echo ASSETS_OK
-          sh tools/fetch-engine.sh
-          echo ENGINE_OK
-          mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
-          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
-          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
-          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
-          echo DECODE_OK
-          npm install
-          echo NPM_OK
-          npm run build
-          echo WEB_OK
-          npm run build:server
-          echo SERVER_OK
-          npx cap sync android
-          echo CAP_OK
-          echo ALL_OK
+          npx --yes @capacitor/cli@latest sync android 2>&1 | tail -5; echo CAP_EXIT=$?
+          echo PROBE_DONE
       - name: commit diag log
         if: always()
         run: |
+          set -x
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -b diag-log 2>/dev/null || git checkout diag-log
+          git switch -c diag-log || true
           mkdir -p diag
-          cp /tmp/diag.log diag/diag.log 2>/dev/null || echo "no log" > diag/diag.log
+          cp /tmp/diag.log diag/diag.log
           git add diag/diag.log
-          git commit -m "diag: build log" || echo "nothing"
-          git push origin diag-log || true
+          git commit -m "diag: probe log [skip ci]" || true
+          git push origin HEAD:diag-log || git push origin diag-log || true
+          git branch -a
