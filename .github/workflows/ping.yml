@@ -1,71 +1,8 @@
-name: ping
+name: ping-disabled
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
 jobs:
-  j_g_debug:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: 21 }
-      - run: |
-          set -x
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          convert /tmp/icon-master.png -resize 192x192 public/icon-192.png
-          convert /tmp/icon-master.png -resize 512x512 public/icon-512.png
-          RES=android/app/src/main/res
-          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            n=${d%%:*}; s=${d##*:}; mkdir -p $RES/mipmap-$n
-            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
-            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
-            fg=$((s*66/100))
-            convert -size ${s}x${s} xc:none \( /tmp/icon-master.png -resize ${fg}x${fg} \) -gravity center -composite $RES/mipmap-$n/ic_launcher_foreground.png
-          done
-          sh tools/fetch-engine.sh
-          mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
-          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
-          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
-          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
-          npm install
-          npm run build
-          npm run build:server
-          npx cap copy android && echo CAP_OK
-          cd android && chmod +x gradlew && ./gradlew --version && ./gradlew assembleDebug --no-daemon && echo DEBUG_OK && ls app/build/outputs/apk/debug/
-  j_g_release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: 21 }
-      - run: |
-          set -x
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          convert /tmp/icon-master.png -resize 192x192 public/icon-192.png
-          convert /tmp/icon-master.png -resize 512x512 public/icon-512.png
-          RES=android/app/src/main/res
-          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            n=${d%%:*}; s=${d##*:}; mkdir -p $RES/mipmap-$n
-            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
-            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
-            fg=$((s*66/100))
-            convert -size ${s}x${s} xc:none \( /tmp/icon-master.png -resize ${fg}x${fg} \) -gravity center -composite $RES/mipmap-$n/ic_launcher_foreground.png
-          done
-          sh tools/fetch-engine.sh
-          mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
-          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
-          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
-          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
-          npm install
-          npm run build
-          npm run build:server
-          npx cap copy android && echo CAP_OK
-          cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon && echo RELEASE_OK && ls app/build/outputs/apk/release/
+      - run: echo "ping disabled"
