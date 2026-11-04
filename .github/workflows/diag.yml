@@ -1,54 +1,8 @@
-name: diag
+name: diag-disabled
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
 jobs:
-  diag:
+  noop:
     runs-on: ubuntu-latest
-    permissions: { contents: write }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: 21 }
-      - run: |
-          set +e
-          {
-          echo "=== START $(date) ==="
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1
-          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          convert /tmp/icon-master.png -resize 192x192 public/icon-192.png
-          convert /tmp/icon-master.png -resize 512x512 public/icon-512.png
-          RES=android/app/src/main/res
-          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            n=${d%%:*}; s=${d##*:}; mkdir -p $RES/mipmap-$n
-            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
-            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
-            fg=$((s*66/100))
-            convert -size ${s}x${s} xc:none \( /tmp/icon-master.png -resize ${fg}x${fg} \) -gravity center -composite $RES/mipmap-$n/ic_launcher_foreground.png
-          done
-          echo "ICONS_DONE"
-          sh tools/fetch-engine.sh; echo "ENGINE_EXIT=$?"
-          mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
-          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java; echo "DECODE_EXIT=$?"
-          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
-          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
-          npm install; echo "NPM_EXIT=$?"
-          npm run build; echo "WEB_EXIT=$?"
-          npm run build:server; echo "SERVER_EXIT=$?"
-          npx cap copy android; echo "CAP_EXIT=$?"
-          cd android && chmod +x gradlew
-          ./gradlew --version; echo "VER_EXIT=$?"
-          ./gradlew assembleDebug --no-daemon; echo "GRADLE_EXIT=$?"
-          echo "=== END $(date) ==="
-          } > /tmp/g.log 2>&1
-          tail -80 /tmp/g.log
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          mkdir -p diag && cp /tmp/g.log diag/gradle.log
-          git add diag/gradle.log
-          git commit -m "diag: full log [skip ci]"
-          git push origin HEAD:refs/heads/gradle-log
-          echo "PUSH_EXIT=$?"
+      - run: echo "diag disabled"
