@@ -26,7 +26,7 @@ jobs:
           curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar \
             "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
           curl -fsSL -o /tmp/icon-master.png \
-            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/7c89a71d6ec1c72dbf35aeddbff60bdb0675e0c40/assets/app-icon.png" \
+            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" \
             || convert -size 1024x1024 xc:'#0a0e14' -fill '#f5c518' -draw 'circle 512,512 512,150' -fill '#0a0e14' -draw 'circle 512,512 512,260' /tmp/icon-master.png
           convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
           RES=android/app/src/main/res
