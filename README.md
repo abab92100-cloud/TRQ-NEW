@@ -1,20 +1,20 @@
-# KING-trading (TRQ-NEW) — بوت تداول KuCoin Futures للأندرويد + سيرفر Termux
+# TRQ-NEW — بوت تداول عقود KuCoin الآجلة (Android + سيرفر Termux)
 
-تطبيق جوال (Capacitor + React 19 + TS) يعمل مباشرة بالاتصال مع سيرفر Node على نفس الجهاز في Termux — مفاتيح KuCoin وأوامر التداول تبقى داخل الجهاز.
+تطبيق جوال (Capacitor + React 19 + TS) يعمل مباشرة بالاتصال مع سيرفر Node على نفس الجهاز في Termux — مفاتيح KuCoin وأوامر التداول تبدأ介 dakhl الجهاز.
 
 ## البنية
 
 | المسار | الوصف |
 |---|---|
-| `src/engine.ts` | محرك التداول — **يُ Mist at build time**: `tools/fetch-engine.sh` يجلب النسخة المثبتة من KING-210 (commit 7c89a71) ويطبق `engine.patch.gz.b64` (إصلاحات الأمان) |
+| `src/engine.ts` | محرك التداول — **يُولَّد وقت البناء**: `tools/fetch-engine.sh` يجلب النسخة المثبتة من KING-210 (commit a84b2b11) ويطبق `engine.patch.gz.b64` (إصلاحات الأمان) |
 | `engine.patch.gz.b64` | إصلاحات engine.ts مضغوطة (توكن `X-TRQ-Token` + تشفير المفاتيح بـ Android Keystore) |
 | `src/ws.ts`, `src/App.tsx`, `src/Chart.tsx`, `src/server-entry.ts`, `src/server-shims.ts` | واجهة + WebSocket KuCoin + سيرفر الأسطول |
-| `KingNative.java.gz.b64` | البلجن الأصلي (wake lock + watchdog + Keystore) — CI يفكه قبل البناء |
-| `releases/trg-server.mjs` | السيرفر المجمّع (ي SOLVEد CI) |
+| `KingNative.java.gz.b64` | اللجن parche (wake lock + watchdog + Keystore) — CI يفك قبل البناء |
+| `releases/trg-server.mjs` | السيرفر المجمّع (يُولَّد CI) |
 | `releases/trg-setup.sh` | إعداد Termux تلقائي (node + wake-lock + watchdog + boot) |
-| `.github/workflows/build.yml` | CI: يبني APK موقّعًا من Secrets ويحدّث `releases/` |
+| `.github/workflows/build.yml` | CI: يبني APK موقّع من Secrets ويحدّث `releases/` |
 
-## التشغيل (مطوّر)
+## التشغيل (مطور)
 
 ```bash
 npm install
@@ -39,9 +39,9 @@ nohup node ~/trg-server.mjs > ~/trg-server.log 2>&1 &
 
 - `~/.ab-king/*.json` بصلاحيات 0600 + توكن لكل تثبيت؛ `/cmd` تتطلب `X-TRQ-Token` وCORS مقيّد؛ `/state` لا يرسل المفاتيح (مقنّعة).
 - مفاتيح KuCoin على الجهاز مشفرة بـ Android Keystore (AES/GCM).
-- Keystore **لا يُرفع للمستودع** — CI ي RCCpm APK عبر Secrets: `KING_KEYSTORE_BASE64`, `KING_KEYSTORE_PASSWORD`, `KING_KEY_ALIAS`, `KING_KEY_PASSWORD`.
-- الملفات الثنائية (أيقونات/APK/wrapper jar/gradlew) **ي SOLVE CI** من مصادر خارجية — لا ترفعها.
+- Keystore **لا يُرفع للمستودع** — CI يبني APK عبر Secrets: `KING_KEYSTORE_BASE64`, `KING_KEYSTORE_PASSWORD`, `KING_KEY_ALIAS`, `KING_KEY_PASSWORD`.
+- الملفات الثنائية (أيقونات/APK/wrapper jar/gradlew) **يُولَّد CI** من مصادر خارجية — لا ترفعها.
 
-## رفع يدوي للملفات
+## رابط تحميل الملفات
 
-https://github.com/abab92100-cloud/TRQ-NEW/upload/main
+https://github.com/abab92100-cloud/TRQ-NEW/releases
