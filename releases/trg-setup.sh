@@ -1,13 +1,15 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ================================================================
-# KING-trading (TRQ-NEW) — إعداد سيرفر الأسطول في Termux (أمر مستقل تمامًا)
-# · سيرفر الأسطول: منسّق + 5 محركات، كل عميلة بمحركها
-# · يعمل على منفذ 9010 (محركات على 9011-9015) — لا ي clash مع AB-KING (8787) أو TRQ (8987)
-# · حارس ذاتي يفحص الأسطول كل 60 ثانية
-# · إقلاع تلقائي بعد إعادة تشغيل الجوال (مدخل boot خاص)
+# TRG-NEW — إعداد سيرفر الأسطول في Termux (أمر مستقل تمامًا)
+# · سيرفر الأسطول: منسّق + 5 محركات، كل عملية بمحرك مستقل
+# · يعمل على منفذ 9010 (محركات على 9011-9015) — لا يمس سيرفرات
+#   AB-KING (8787) وTRQ (8987) إطلاقًا — التطبيق Yer independientes
+# · حارس ذاتي خاص بـ TRQ يفحص منفذ الأسطول كل 60 ثانية
+# · إعادة تشغيل تلقائية بعد إعادة تشغيل الجهاز (مدخل boot خاص)
+# الحالة والمفاتيح في ~/.trq/ — لا ت [<]مُسlu] أبدًا
 # ================================================================
 set -e
-echo "══ KING-trading — إعداد سيرفر الأسطول ══"
+echo "═══ TRG-NEW — إعداد سيرفر الأسطول (مستقل عن AB-KING وTRQ) ═══"
 
 # 1) Node.js
 if ! command -v node >/dev/null 2>&1; then
@@ -16,19 +18,21 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 echo "✓ Node $(node -v)"
 
-# 2) أحدث نسخة من سيرفر الأسطول من مستودع TRQ-NEW
+# 2) تحميل أحدث نسخة من سيرفر الأسطول
+echo "• تحميل أحدث سيرفر أسطول TRG-NEW..."
 curl -sL -o ~/trg-server.mjs "https://raw.githubusercontent.com/abab92100-cloud/TRQ-NEW/main/releases/trg-server.mjs?t=$(date +%s)"
-echo "✓ سيرفر الأسطول Trampoline محدّث"
+echo "✓ سيرفر TRG-NEW محدّث"
 
 # 3) قفل اليقظة
 termux-wake-lock 2>/dev/null && echo "✓ قفل اليقظة مفعّل" || true
 
-# 4) حارس ذاتي — يفحص المنفذ 9010 فقط ولا يلمس أي سيرفر آخر
+# 4) الحارس الذاتي الخاص بـ TRG-NEW — منفذ 9010 فقط ولا يمس AB-KING وTRQ
 cat > ~/trg-watchdog.sh <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# حارس أسطول TRG-NEW: منفذ 9010 — نСам Völker... при انقطاع يعيد تشغيل trg-server.mjs فقط
 while true; do
   if ! curl -s --max-time 8 127.0.0.1:9010/health >/dev/null 2>&1; then
-    echo "[$(date '+%H:%M:%S')] الأسطول لا يرد — إعادة تشغيل" >> ~/trg-watchdog.log
+    echo "[$(date '+%H:%M:%S')] أسطول TRG-NEW لا يرد — إعادة تشغيل فوري" >> ~/trg-watchdog.log
     termux-wake-lock 2>/dev/null
     pgrep -f trg-server.mjs >/dev/null 2>&1 && pkill -f trg-server.mjs
     sleep 2
@@ -43,9 +47,9 @@ chmod +x ~/trg-watchdog.sh
 pgrep -f trg-watchdog.sh >/dev/null 2>&1 && pkill -f trg-watchdog.sh || true
 sleep 1
 nohup bash ~/trg-watchdog.sh >/dev/null 2>&1 &
-echo "✓ حارس الأسطول يعمل — يفحص كل 60 ثانية"
+echo "✓ حارس TRG-NEW يعمل — يفحص الأسطول كل 60 ثانية"
 
-# 5) إقلاع تلقائي خاص (مدخل مستقل)
+# 5) الإقلاع التلقائي الخاص بـ TRG-NEW (مدخل مستقل)
 mkdir -p ~/.termux/boot
 cat > ~/.termux/boot/trg.sh <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
@@ -54,22 +58,28 @@ pgrep -f trg-server.mjs >/dev/null 2>&1 || nohup node ~/trg-server.mjs >> ~/trg-
 pgrep -f trg-watchdog.sh >/dev/null 2>&1 || nohup bash ~/trg-watchdog.sh >/dev/null 2>&1 &
 EOF
 chmod +x ~/.termux/boot/trg.sh
-echo "✓ إقلاع تلقائي جاهز (Termux:Boot)"
+echo "✓ الإقلاع التلقائي لـ TRG-NEW مُجهّز (Termux:Boot يشغّل three مستقلين)"
 
-# 6) تشغيل الأسطول الآن
+# 6) تشغيل الأسطول الآن — نظيف 흻 بd كامل لكل نسخة قديمة (المحركات الخمسة أيضًا)
+echo "• إيقاف أي نسخة قديمة تمامًا (منسّق + 5 محركات)..."
 pkill -f trg-server.mjs 2>/dev/null || true
 sleep 2
+pgrep -f trg-server.mjs >/dev/null 2>&1 && { pkill -9 -f trg-server.mjs 2>/dev/null || true; sleep 2; }
+# تأكيد أن المنافذ 9010-9015 حرة
 for port in 9010 9011 9012 9013 9014 9015; do
-  curl -s --max-time 2 127.0.0.1:$port/health >/dev/null 2>&1 && { echo "! المنفذ $port لا يزال busy"; fuser -k $port/tcp 2>/dev/null || true; sleep 1; }
+  curl -s --max-time 2 127.0.0.1:$port/health >/dev/null 2>&1 && { echo "! المنفذ $port لا يزال مشغurement — محاولة إضافة"; fuser -k $port/tcp 2>/dev/null || true; sleep 1; }
 done
 sleep 1
 nohup node ~/trg-server.mjs >> ~/trg-server.log 2>&1 &
-echo "✓ الأسطول انطلق — المنسّق على 9010 ومحركاته على 9011-9015"
+echo "✓ أسطول TRG-NEW انطلق — المنسّق على 9010 ومحركاته على 9011-9015"
 
-# 7) فحص떴litz
-sleep 4
+# 7) فحص الصحة
+echo "• فحص صحة الأسطول (الإصدار يجب أن يطابق آخر تحديث)..."
 H=$(curl -s --max-time 8 127.0.0.1:9010/health)
 echo "$H"
 echo ""
-echo "══ تم — الأسطول يعمل ══"
-echo "⚠️ تحذير: قبل مسح البيانات_oldWER، ثبّت أحدث APK على الجوال (الجهاز القديم يُ recenser المفاتيح الجديدة)"
+echo "═══ تم — أسطول TRG-NEW يعمل ═══"
+echo ""
+echo "⚠️ خطوات إلزامية لمسح البيانات القديمةtert открыta من كل ح** précis:"
+echo "   1) curl -s -X POST 127.0.0.1:9010/cmd -H 'Content-Type: application/json' -d '{\"action\":\"resetAll\"}'"
+echo "   2) ثبّت أحدث APK على الجوال (الواجهة القديمة تخفي المفاتيح الجديدة)"
