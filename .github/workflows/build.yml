@@ -1,4 +1,4 @@
-name: Build KING-trading APK + server
+name: Build TRQ-NEW APK + server
 
 on:
   push:
@@ -85,19 +85,19 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../releases
-          ls app/build/outputs/apk/release/ && cp app/build/outputs/apk/release/*.apk ../releases/KING-trading-latest.apk
+          ls app/build/outputs/apk/release/ && cp app/build/outputs/apk/release/*.apk ../releases/TRQ-NEW-latest.apk
           cp ../server-dist/ab-king-server.mjs ../releases/trg-server.mjs
       - name: Commit build artifacts back to releases/
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add -f releases/KING-trading-latest.apk releases/trg-server.mjs
-          git commit -m "ci: update KING-trading-latest.apk + trg-server.mjs [skip ci]" || echo "nothing to commit"
+          git add -f releases/TRQ-NEW-latest.apk releases/trg-server.mjs
+          git commit -m "ci: update TRQ-NEW-latest.apk + trg-server.mjs [skip ci]" || echo "nothing to commit"
           git push
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: king-trading-artifacts
+          name: trq-new-artifacts
           path: |
-            releases/KING-trading-latest.apk
+            releases/TRQ-NEW-latest.apk
             releases/trg-server.mjs
