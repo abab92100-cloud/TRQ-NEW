@@ -26,7 +26,7 @@ jobs:
           curl -sL -o android/gradle/wrapper/gradle-wrapper.jar \
             "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
           curl -sL -o /tmp/icon-master.png \
-            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/main/assets/app-icon.png"
+            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/7c89a71d6ec1c72dbf35aeddbff60bdb0675e0c40/assets/app-icon.png"
           convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
           RES=android/app/src/main/res
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
