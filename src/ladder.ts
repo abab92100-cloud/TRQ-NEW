@@ -1,5 +1,6 @@
 // Ladder strategy — applies to EACH fleet slot independently.
-// 5 groups of 4 orders. Within group g, consecutive orders are spaced SPACINGS[g]% of the group anchor price.
+// 5 groups of 4 orders. Within group g, consecutive orders are spaced SPACINGS[g]% of the group anchor price
+// (0.30% / 0.40% / 0.50% / 0.60% / 0.70% between each order and the next).
 // Group 0 is anchored at the start price. When a group is fully filled, wait WAITS_MS[g]; during the wait the
 // extreme price in the trade direction is tracked (max for short, min for long). If NO profit was harvested
 // during the wait, the next group is added, anchored at that extreme (first order at the extreme, spacing
@@ -9,7 +10,7 @@
 import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd } from './engine';
 
 const GROUP_SIZE = 4;
-const SPACINGS = [30, 40, 50, 60, 70];                       // % price spacing between orders inside a group
+const SPACINGS = [0.30, 0.40, 0.50, 0.60, 0.70];               // % price spacing between consecutive orders inside a group
 const WAITS_MS = [3 * 3600e3, 4 * 3600e3, 4 * 3600e3, 4 * 3600e3]; // wait after group g fills, before group g+1
 const ASC = 1.25;                                            // ascending money ratio per part
 
