@@ -3,52 +3,59 @@ on:
   push:
     branches: ["main"]
 jobs:
-  prep:
+  j_gradle2:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
-          echo PREP_OK
-  j_resize:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/i.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          convert /tmp/i.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/i2.png && echo RESIZE_OK
-  j_fg:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/i.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          mkdir -p /tmp/res
-          convert -size 48x48 xc:none \( /tmp/i.png -resize 31x31 \) -gravity center -composite /tmp/res/fg.png && echo FG_OK
-  j_mipmap:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/i.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
-          RES=android/app/src/main/res
-          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            n=${d%%:*}; s=${d##*:}
-            convert /tmp/i.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
-            convert /tmp/i.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
-          done
-          echo MIPMAP_OK
-  j_capupdate:
-    runs-on: ubuntu-latest
+    permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
       - run: |
-          npm install
-          npx cap update android && echo CAP_UPDATE_OK
+          set -x
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
+          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png"
+          convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
+          RES=android/app/src/main/res
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            n=${d%%:*}; s=${d##*:}; mkdir -p $RES/mipmap-$n
+            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
+            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
+            fg=$((s*66/100))
+            convert -size ${s}x${s} xc:none \( /tmp/icon-master.png -resize ${fg}x${fg} \) -gravity center -composite $RES/mipmap-$n/ic_launcher_foreground.png
+          done
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p $RES/drawable-port-$d $RES/drawable-land-$d
+            convert /tmp/icon-master.png -resize 640x960^ -gravity center -extent 640x960 $RES/drawable-port-$d/splash.png 2>/dev/null || true
+            convert /tmp/icon-master.png -resize 960x640^ -gravity center -extent 960x640 $RES/drawable-land-$d/splash.png 2>/dev/null || true
+          done
+          convert /tmp/icon-master.png -resize 640x960 $RES/drawable/splash.png
+          convert /tmp/icon-master.png -resize 192x192 public/icon-192.png
+          convert /tmp/icon-master.png -resize 512x512 public/icon-512.png
+          mkdir -p assets && cp /tmp/icon-master.png assets/app-icon.png
+          echo ICONS_OK
+          sh tools/fetch-engine.sh && echo ENGINE_OK
+          mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
+          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
+          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
+          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
+          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
+          npm install && echo NPM_OK
+          npm run build && echo WEB_OK
+          npm run build:server && echo SERVER_OK
+          npx cap copy android && echo CAP_OK
+          cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon && echo GRADLE_OK && ls app/build/outputs/apk/release/
+  j_push:
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          echo test > ci-push-test.txt
+          git add ci-push-test.txt
+          git commit -m "ci: push test [skip ci]" || true
+          git push origin HEAD:refs/heads/ci-push-test && echo PUSH_BRANCH_OK || echo PUSH_BRANCH_FAIL
+          git push origin HEAD:main && echo PUSH_MAIN_OK || echo PUSH_MAIN_FAIL
