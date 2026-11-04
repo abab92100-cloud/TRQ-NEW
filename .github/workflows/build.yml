@@ -32,12 +32,14 @@ jobs:
           RES=android/app/src/main/res
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             n=${d%%:*}; s=${d##*:}
+            mkdir -p $RES/mipmap-$n
             convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
             convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
             fg=$((s*66/100))
             convert -size ${s}x${s} xc:none \( /tmp/icon-master.png -resize ${fg}x${fg} \) -gravity center -composite $RES/mipmap-$n/ic_launcher_foreground.png
           done
           for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p $RES/drawable-port-$d $RES/drawable-land-$d
             convert /tmp/icon-master.png -resize 640x960^ -gravity center -extent 640x960 $RES/drawable-port-$d/splash.png 2>/dev/null || true
             convert /tmp/icon-master.png -resize 960x640^ -gravity center -extent 960x640 $RES/drawable-land-$d/splash.png 2>/dev/null || true
           done
@@ -50,6 +52,7 @@ jobs:
         run: sh tools/fetch-engine.sh
       - name: Decode KingNative.java + gradlew scripts (not committed)
         run: |
+          mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
           base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
           curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
           curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
@@ -60,7 +63,7 @@ jobs:
       - name: Build server bundle
         run: npm run build:server
       - name: Sync Capacitor Android
-        run: npx cap sync android
+        run: npx cap copy android
       - name: Restore release keystore from secret (never commit it)
         working-directory: android
         run: |
