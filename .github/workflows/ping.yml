@@ -3,19 +3,33 @@ on:
   push:
     branches: ["main"]
 jobs:
-  j_node:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: node -v
-  j_assets:
+  j_icons_full:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          curl -fsSL -o /tmp/icon.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" && echo ICON_OK
+          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
+          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" || convert -size 1024x1024 xc:'#0a0e14' -fill '#f5c518' -draw 'circle 512,512 512,150' -fill '#0a0e14' -draw 'circle 512,512 512,260' /tmp/icon-master.png
+          convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
+          RES=android/app/src/main/res
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            n=${d%%:*}; s=${d##*:}
+            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher.png
+            convert /tmp/icon-master.png -resize ${s}x${s} $RES/mipmap-$n/ic_launcher_round.png
+            fg=$((s*66/100))
+            convert -size ${s}x${s} xc:none \( /tmp/icon-master.png -resize ${fg}x${fg} \) -gravity center -composite $RES/mipmap-$n/ic_launcher_foreground.png
+          done
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            convert /tmp/icon-master.png -resize 640x960^ -gravity center -extent 640x960 $RES/drawable-port-$d/splash.png 2>/dev/null || true
+            convert /tmp/icon-master.png -resize 960x640^ -gravity center -extent 960x640 $RES/drawable-land-$d/splash.png 2>/dev/null || true
+          done
+          convert /tmp/icon-master.png -resize 640x960 $RES/drawable/splash.png
+          convert /tmp/icon-master.png -resize 192x192 public/icon-192.png
+          convert /tmp/icon-master.png -resize 512x512 public/icon-512.png
+          mkdir -p assets
+          cp /tmp/icon-master.png assets/app-icon.png
+          echo ICONS_FULL_OK
   j_engine:
     runs-on: ubuntu-latest
     steps:
@@ -23,27 +37,7 @@ jobs:
       - run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq curl patch >/dev/null 2>&1 || true
           sh tools/fetch-engine.sh && echo ENGINE_OK
-  j_web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq curl patch >/dev/null 2>&1 || true
-          npm install
-          npm run build && echo WEB_OK
-  j_server:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq curl patch >/dev/null 2>&1 || true
-          npm install
-          npm run build:server && echo SERVER_OK && ls -la server-dist/
-  j_cap:
+  j_cap_sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,12 +48,36 @@ jobs:
           sh tools/fetch-engine.sh
           npm install
           npm run build
-          npx cap sync android && echo CAP_OK
-  j_decode:
+          npx cap sync android && echo CAP_SYNC_OK
+  j_cap_copy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
       - run: |
-          ls plugins/king-native/android/ || true
+          sudo apt-get update -qq && sudo apt-get install -y -qq curl patch >/dev/null 2>&1 || true
+          sh tools/fetch-engine.sh
+          npm install
+          npm run build
+          npx cap copy android && echo CAP_COPY_OK
+  j_gradle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq curl patch imagemagick >/dev/null 2>&1 || true
+          sh tools/fetch-engine.sh
+          npm install
+          npm run build
           mkdir -p plugins/king-native/android/src/main/java/com/abking/nativeplugin
-          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java && echo DECODE_OK && wc -c plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
+          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
+          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
+          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
+          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon && echo GRADLE_OK && ls app/build/outputs/apk/release/
