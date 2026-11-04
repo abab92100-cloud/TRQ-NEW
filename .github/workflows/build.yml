@@ -97,6 +97,12 @@ jobs:
           git add -f releases/TRQ-NEW-latest.apk releases/trg-server.mjs
           git commit -m "ci: update TRQ-NEW-latest.apk + trg-server.mjs [skip ci]" || echo "nothing to commit"
           git push
+      - name: Publish GitHub Release (latest) for direct mobile download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.0 releases/TRQ-NEW-latest.apk releases/trg-server.mjs --title "TRQ-NEW v1.0.0" --notes "TRQ-NEW app (5 fleets) + fleet server" --latest 2>/dev/null || \
+            gh release upload v1.0.0 releases/TRQ-NEW-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
