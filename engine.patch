@@ -1,0 +1,63 @@
+diff --git a/src/engine.ts b/src/engine.ts
+index bb64118..2d0adf1 100644
+--- a/src/engine.ts
++++ b/src/engine.ts
+@@ -200,8 +200,9 @@ function toast(m:any){ S.toastMsg={text:m,at:Date.now()}; emit(); }
+ // ملاحظة حاسمة: لا ثابت Eigenschaften عند التحميل — window.__ABKING_REMOTE يُضبط بعد تغيير الوحدة،
+ // فدالة حية تقرأ كل مرة naïvely من window حتى ت522لxmها (أوامر مزدوجة!)
+ const R=()=>(typeof window!=='undefined'&&window.__ABKING_REMOTE)?String(window.__ABKING_REMOTE):null;
++const TOKH=()=>({ 'X-TRQ-Token': String((typeof localStorage!=='undefined'&&localStorage.getItem('abking:token'))||'') });
+ async function remoteCmd(action:any,payload?:any){ const base=R(); if(!base) return {ok:false,error:'no server'};
+-  try{ const r=await fetch(base+'/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
++  try{ const r=await fetch(base+'/cmd',{method:'POST',headers:{'Content-Type':'application/json',...TOKH()},
+       body:JSON.stringify({action,...(payload||{})})});
+     return await r.json(); }catch(e){ return {ok:false,error:String((e as any)?.message||e)}; } }
+ let _remoteFails=0;
+@@ -229,8 +230,9 @@ function relayServerLogs(){ // أحدث أحداث السيرفر都bach في Termux ولا تصل للواجهة unitها —
+     nativeNotify('AB-KING',l.text); } }
+ export async function remoteSync(){ const base=R(); if(!base) return false;
+   try{ const __sel=(typeof window!=='undefined'&&(window as any).__FLEET_SEL)||0;
+-    const r=await fetch(base+'/state'+(__sel?('?sel='+__sel):'')); const j=await r.json();
++    const r=await fetch(base+'/state'+(__sel?('?sel='+__sel):''),{headers:{...TOKH()}}); const j=await r.json();
+     if(!j||!j.ok) throw new Error('bad state');
++    if(j.token){ try{ localStorage.setItem('abking:token', String(j.token)); }catch(e){ logSwallow("silent-catch", e); } }
+     Object.assign(S,j.state); _remoteFails=0;
+     relayServerLogs();
+     // مؤشر douceur في الواجهة يتبع قناة السيرفر حية ما دامت متزامنة
+@@ -244,7 +246,7 @@ export async function detectRemoteServer(){ if(typeof window==='undefined') retu
+   try{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),900);
+     const r=await fetch('http://127.0.0.1:9010/state',{signal:c.signal}); clearTimeout(t);
+     const j=await r.json();
+-    if(j&&j.ok){ window.__ABKING_REMOTE='http://127.0.0.1:9010'; return true; }
++    if(j&&j.ok){ if(j.token){ try{ localStorage.setItem('abking:token', String(j.token)); }catch(e){ logSwallow("silent-catch", e); } } window.__ABKING_REMOTE='http://127.0.0.1:9010'; return true; }
+   }catch(e){ logSwallow("silent-catch", e); }
+   return false; }
+ 
+@@ -304,9 +306,14 @@ export function netAlivePing(ok){
+ let _wasDownStart=0;
+ 
+ /* ---------- التخزين ---------- */
++function knCrypto(){ try{ if(typeof window==='undefined') return null; return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.KingNative; }catch(e){ return null; } }
++async function encKeysTxt(txt){ const N=knCrypto(); if(!N||!N.encrypt) return null; try{ const r=await N.encrypt({text:txt}); return r&&r.b64?('enc:'+r.b64):null; }catch(e){ return null; } }
++async function decKeysTxt(v){ const N=knCrypto(); if(!N||!N.decrypt) return null; try{ const r=await N.decrypt({b64:v.slice(4)}); return r&&r.text!=null?r.text:null; }catch(e){ return null; } }
+ function saveAll(){ try{
+   localStorage.setItem('abking:cfg',JSON.stringify(S.config));
+-  localStorage.setItem('abking:keys',S.keys?JSON.stringify(S.keys):'');
++  if(S.keys){ const __kp=JSON.stringify(S.keys); localStorage.setItem('abking:keys',__kp);
++    encKeysTxt(__kp).then(ct=>{ try{ if(ct) localStorage.setItem('abking:keys',ct); }catch(e){ logSwallow("silent-catch", e); } }); }
++  else localStorage.setItem('abking:keys','');
+   localStorage.setItem('abking:snd',S.sound?'1':'0');
+   localStorage.setItem('abking:tone',S.soundTone||'soft');
+   const rt={grid:S.grid,position:S.position,journal:S.journal,realizedPnl:S.realizedPnl,
+@@ -331,7 +338,10 @@ function loadAll(){ try{
+   const cfg=JSON.parse(localStorage.getItem('abking:cfg')||'null'); if(cfg) S.config={...S.config,...cfg};
+   // اسطول TRQ: أول إقلاع Blair لا يعيد — الرصيد الافتراضي يُقسَّم على المحرك وحدها
+   if(!cfg&&FLEET_MODE()) S.config.cycleBalance=Math.max(1,Math.round(S.config.cycleBalance/5*100)/100);
+-  const ks=localStorage.getItem('abking:keys'); if(ks){ try{S.keys=JSON.parse(ks);}catch(e){S.keys=null;} }
++  const ks=localStorage.getItem('abking:keys');
++  if(ks){ if(ks.startsWith('enc:')){ decKeysTxt(ks).then(pt=>{ if(pt!=null){ try{S.keys=JSON.parse(pt);}catch(e){S.keys=null;} emit(); } }); }
++    else { try{S.keys=JSON.parse(ks);}catch(e){S.keys=null;}
++      encKeysTxt(ks).then(ct=>{ try{ if(ct) localStorage.setItem('abking:keys',ct); }catch(e){ logSwallow("silent-catch", e); } }); } }
+   S.sound=localStorage.getItem('abking:snd')!=='0';
+   S.soundTone=localStorage.getItem('abking:tone')||'soft';
+   const rt=JSON.parse(localStorage.getItem('abking:rt')||'null');
