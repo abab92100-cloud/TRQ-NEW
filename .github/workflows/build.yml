@@ -23,10 +23,11 @@ jobs:
       - name: Binary assets are generated, not committed (icons/splash/wrapper jar/apk)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          curl -sL -o android/gradle/wrapper/gradle-wrapper.jar \
+          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar \
             "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -sL -o /tmp/icon-master.png \
-            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/7c89a71d6ec1c72dbf35aeddbff60bdb0675e0c40/assets/app-icon.png"
+          curl -fsSL -o /tmp/icon-master.png \
+            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/7c89a71d6ec1c72dbf35aeddbff60bdb0675e0c40/assets/app-icon.png" \
+            || convert -size 1024x1024 xc:'#0a0e14' -fill '#f5c518' -draw 'circle 512,512 512,150' -fill '#0a0e14' -draw 'circle 512,512 512,260' /tmp/icon-master.png
           convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
           RES=android/app/src/main/res
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
@@ -52,11 +53,12 @@ jobs:
           base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
           curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
           curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
-      - name: Build web + server
-        run: |
-          npm install
-          npm run build
-          npm run build:server
+      - name: Install deps
+        run: npm install
+      - name: Build web app
+        run: npm run build
+      - name: Build server bundle
+        run: npm run build:server
       - name: Sync Capacitor Android
         run: npx cap sync android
       - name: Restore release keystore from secret (never commit it)
@@ -80,7 +82,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../releases
-          cp app/build/outputs/apk/release/app-release.apk ../releases/KING-trading-latest.apk
+          ls app/build/outputs/apk/release/ && cp app/build/outputs/apk/release/*.apk ../releases/KING-trading-latest.apk
           cp ../server-dist/ab-king-server.mjs ../releases/trg-server.mjs
       - name: Commit build artifacts back to releases/
         run: |
