@@ -1,0 +1,13 @@
+node_modules
+dist
+server-dist
+android/app/build
+android/.gradle
+android/build
+android/local.properties
+*.keystore
+*.log
+*.png
+*.jpeg
+*.apk
+android/gradle/wrapper/gradle-wrapper.jar
