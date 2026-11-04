@@ -1,39 +1,8 @@
-name: diag
+name: diag-disabled
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
 jobs:
-  diag:
+  noop:
     runs-on: ubuntu-latest
-    permissions: { contents: write }
     steps:
-      - uses: actions/checkout@v4
-      - name: probe with log capture
-        continue-on-error: true
-        run: |
-          exec > >(tee /tmp/diag.log) 2>&1
-          set -x
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
-          which convert; convert -version | head -1
-          curl -fsSL -o /tmp/icon-master.png "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" && echo ICON_OK
-          convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png && echo RESIZE_OK
-          RES=android/app/src/main/res
-          mkdir -p $RES/mipmap-mdpi
-          convert /tmp/icon-master.png -resize 48x48 $RES/mipmap-mdpi/ic_launcher.png && echo MIPMAP_OK
-          convert -size 48x48 xc:none \( /tmp/icon-master.png -resize 31x31 \) -gravity center -composite $RES/mipmap-mdpi/ic_launcher_foreground.png && echo FG_OK
-          echo ASSETS_OK
-          npx --yes @capacitor/cli@latest sync android 2>&1 | tail -5; echo CAP_EXIT=$?
-          echo PROBE_DONE
-      - name: commit diag log
-        if: always()
-        run: |
-          set -x
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git switch -c diag-log || true
-          mkdir -p diag
-          cp /tmp/diag.log diag/diag.log
-          git add diag/diag.log
-          git commit -m "diag: probe log [skip ci]" || true
-          git push origin HEAD:diag-log || git push origin diag-log || true
-          git branch -a
+      - run: echo "diag disabled"
