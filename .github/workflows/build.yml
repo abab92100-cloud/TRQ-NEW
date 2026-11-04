@@ -25,9 +25,14 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
           curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar \
             "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -fsSL -o /tmp/icon-master.png \
-            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/app-icon.png" \
-            || convert -size 1024x1024 xc:'#0a0e14' -fill '#f5c518' -draw 'circle 512,512 512,150' -fill '#0a0e14' -draw 'circle 512,512 512,260' /tmp/icon-master.png
+          if [ -f assets/app-icon.png ]; then
+            cp assets/app-icon.png /tmp/icon-master.png
+          else
+            convert -size 1024x1024 xc:'#0a0e14' \
+              -fill none -stroke '#f5c518' -strokewidth 30 -draw 'circle 512,512 512,170' \
+              -fill '#f5c518' -stroke none -draw 'rectangle 382,400 642,455' -draw 'rectangle 487,400 537,665' \
+              /tmp/icon-master.png
+          fi
           convert /tmp/icon-master.png -resize 1024x1024^ -gravity center -extent 1024x1024 /tmp/icon-master.png
           RES=android/app/src/main/res
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
