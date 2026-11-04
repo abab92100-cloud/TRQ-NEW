@@ -11,3 +11,5 @@ android/local.properties
 *.jpeg
 *.apk
 android/gradle/wrapper/gradle-wrapper.jar
+src/engine.ts
+engine.patch
