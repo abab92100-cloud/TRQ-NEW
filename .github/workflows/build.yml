@@ -47,6 +47,11 @@ jobs:
           cp /tmp/icon-master.png assets/app-icon.png
       - name: Fetch engine.ts (pinned original from KING-210 + engine.patch)
         run: sh tools/fetch-engine.sh
+      - name: Decode KingNative.java + gradlew scripts (not committed)
+        run: |
+          base64 -d KingNative.java.gz.b64 | gzip -d > plugins/king-native/android/src/main/java/com/abking/nativeplugin/KingNative.java
+          curl -sL -o android/gradlew "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew"
+          curl -sL -o android/gradlew.bat "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradlew.bat"
       - name: Build web + server
         run: |
           npm install
