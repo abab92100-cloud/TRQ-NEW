@@ -1,7 +1,7 @@
 {
-  "name": "KING-trading",
-  "short_name": "KING-trading",
-  "description": "بوت تداول عقد KuCoin الآجل — شبكة + صيد + gelen",
+  "name": "TRQ-NEW",
+  "short_name": "TRQ-NEW",
+  "description": "بوت تداول عقود KuCoin الآجلة — شبكة + side + Tremux",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "./",
