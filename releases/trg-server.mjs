@@ -59,7 +59,7 @@ globalThis.localStorage = {
     persist();
   }
 };
-console.log("[KING-trading] store: " + file);
+console.log("[AB-210-TRQ] store: " + file);
 
 // src/ws.ts
 var DIRECT = "https://api-futures.kucoin.com";
@@ -6468,14 +6468,18 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "KING-trading-1.0.0";
+var SRV_VER = "AB-210-TRQ-1.1.0";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
 var maskedKeys = (k) => k && k.apiKey ? { apiKey: "\u2022\u2022\u2022\u2022" + String(k.apiKey).slice(-4) } : null;
 var TOK = String(typeof localStorage !== "undefined" && localStorage.getItem("abking:token") || "");
+var FLEET_TOK = String(process.env.ABKING_FLEET_TOKEN || "");
 var ALLOWED_ORIGINS = "https://localhost, http://localhost, capacitor://localhost";
-var cmdAuth = (req) => !!TOK && req.headers["x-trq-token"] === TOK;
+var cmdAuth = (req) => {
+  const h = String(req.headers["x-trq-token"] || "");
+  return !!h && (h === TOK || !!FLEET_TOK && h === FLEET_TOK);
+};
 function send(res, code, obj) {
   res.writeHead(code, {
     "Content-Type": "application/json; charset=utf-8",
@@ -6490,7 +6494,7 @@ async function jfetch(url, ms = 2500, payload) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
   try {
-    const r = await fetch(url, payload ? { method: "POST", signal: c.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) } : { signal: c.signal });
+    const r = await fetch(url, payload ? { method: "POST", signal: c.signal, headers: { "Content-Type": "application/json", "X-TRQ-Token": String(FLEET_TOK || TOK || "") }, body: JSON.stringify(payload) } : { signal: c.signal });
     clearTimeout(t);
     return await r.json();
   } catch {
@@ -6500,7 +6504,7 @@ async function jfetch(url, ms = 2500, payload) {
 }
 var PORT = BASE_PORT + SLOT;
 if (SLOT > 0) {
-  pushLog("server", "\u2705 " + SRV_VER + " \u2014 \u0645\u062D\u0631\u0643 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0631\u0642\u0645 " + SLOT + "/" + FLEET_N + " \u2014 Owner \u0645\u0646 \u0631\u0623\u0633 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \xF7" + FLEET_N + " \u062A\u062F\u0627\u0648\u0644\u0627\u062A \u2014 \u064A\u0628\u062F\u0623 geduldig mecanismo\u0647\u0627");
+  pushLog("server", "\u2705 " + SRV_VER + " \u2014 \u0645\u062D\u0631\u0643 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0631\u0642\u0645 " + SLOT + "/" + FLEET_N + " \u2014 \u062D\u0635\u062A\u0647 \u0631\u0623\u0633 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \xF7" + FLEET_N + " \u062A\u062F\u0627\u0648\u0644\u0627\u062A \u2014 \u064A\u0628\u062F\u0623 \u0627\u0644\u0639\u0645\u0644");
   let bootPickDone = false;
   const fleetSync = () => jfetch("http://127.0.0.1:" + BASE_PORT + "/fleet?i=" + SLOT).then((f) => {
     if (f && Array.isArray(f.taken)) {
@@ -6513,7 +6517,7 @@ if (SLOT > 0) {
             const takenSet = new Set(f.taken.map((t) => t.sym));
             const cand = (S.radar && Array.isArray(S.radar.list) ? S.radar.list : []).find((x) => x && x.symbol && !takenSet.has(x.symbol) && x.symbol !== S.config.symbol);
             if (cand) {
-              pushLog("server", "\u2696\uFE0F \u062Akar \u0639\u0644\u0649 " + S.config.displaySymbol + " \u0645\u0639 \u0627\u0644\u0645\u062D\u0631\u0643 " + winner + " \u2014 \u064A\u0646\u062A\u0642\u0644 \u0647\u0630\u0627 \u0627\u0644\u0645\u062D\u0631\u0643 \u0625\u0644\u0649 " + (cand.disp || cand.symbol));
+              pushLog("server", "\u2696\uFE0F \u062A\u0639\u0627\u0631\u0636 \u0639\u0644\u0649 " + S.config.displaySymbol + " \u0645\u0639 \u0627\u0644\u0645\u062D\u0631\u0643 " + winner + " \u2014 \u064A\u0646\u062A\u0642\u0644 \u0647\u0630\u0627 \u0627\u0644\u0645\u062D\u0631\u0643 \u0625\u0644\u0649 " + (cand.disp || cand.symbol));
               try {
                 saveCfg({
                   symbol: cand.symbol,
@@ -6537,7 +6541,7 @@ if (SLOT > 0) {
       if (clash && clash.holder < SLOT && !S.position) {
         S._harvestAt = Date.now();
         S._reselectDone = false;
-        pushLog("server", "\u{1F6A6} \u062A\u0646\u0628\u064A\u0647 \u0627\u0644\u0623\u0633\u0637\u0648\u0644: \u0639\u0645\u0644\u0629 " + clash.holder + " \u2014 \u064A\u0646\u062A\u0638\u0631 \u0644dicentries \u0628\u062F\u064A\u0644\u0629");
+        pushLog("server", "\u{1F6A6} \u062A\u0646\u0628\u064A\u0647 \u0627\u0644\u0623\u0633\u0637\u0648\u0644: \u0627\u0644\u0639\u0645\u0644\u0629 \u0645\u0634\u063A\u0648\u0644\u0629 \u0628\u0645\u062D\u0631\u0643 " + clash.holder + " \u2014 \u064A\u0646\u062A\u0638\u0631 \u0639\u0645\u0644\u0627\u062A \u0628\u062F\u064A\u0644\u0629");
       }
     }
   }).catch(() => {
@@ -6545,7 +6549,7 @@ if (SLOT > 0) {
   setTimeout(fleetSync, 2500);
   setInterval(fleetSync, 1e4).unref?.();
   setTimeout(() => {
-    liveSync().then(() => pushLog("server", "\u{1F527} \u0627\u0643\u062A\u0645\u0644 reviewer \u0440\u0435\u043F\u043E\u0437\u0438\u0442\u043E\u0440\u0438\u0439 \u0639\u0646\u062F \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u062D\u0631\u0643 " + SLOT + " \u2014 \u0645\u062A\u0637\u0627\u0628\u0642 \u0645\u0639 \u0627\u0644\u0645\u0646\u0635\u0629")).catch(() => {
+    liveSync().then(() => pushLog("server", "\u{1F527} \u0627\u0643\u062A\u0645\u0644\u062A \u0645\u0632\u0627\u0645\u0646\u0629 \u0627\u0644\u062D\u0633\u0627\u0628 \u0639\u0646\u062F \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u062D\u0631\u0643 " + SLOT + " \u2014 \u0645\u062A\u0637\u0627\u0628\u0642 \u0645\u0639 \u0627\u0644\u0645\u0646\u0635\u0629")).catch(() => {
     });
     scanRadar().catch(() => {
     });
@@ -6575,7 +6579,7 @@ var alignFleetStrategy = async () => {
     const diff = STRAT_FIELDS.some((f) => base[f] != null && st.config[f] !== base[f]);
     if (diff) {
       try {
-        await jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "alignStrategy", cfg: base });
+        await jfetch("http://127.0.0.1:" + (BASE_PORT + i) + "/cmd", 8e3, { action: "alignStrategy", cfg: base });
       } catch {
       }
     }
@@ -6649,7 +6653,7 @@ var srv = createServer(async (req, res) => {
     if (req.method === "GET" && (u.pathname === "/" || u.pathname === "/health"))
       return send(res, 200, {
         ok: true,
-        name: "KING-trading Fleet Server",
+        name: "AB-210-TRQ Fleet Server",
         version: SRV_VER,
         fleet: FLEET_N,
         at: Date.now(),
@@ -6843,22 +6847,23 @@ var srv = createServer(async (req, res) => {
 });
 srv.listen(PORT, "127.0.0.1", () => {
   if (SLOT > 0) {
-    console.log("[KING] \u0645\u062D\u0631\u0643 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + SLOT + " \u064A\u0639\u0645\u0644 \u0639\u0644\u0649 http://127.0.0.1:" + PORT);
+    console.log("[AB-210-TRQ] \u0645\u062D\u0631\u0643 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + SLOT + " \u064A\u0639\u0645\u0644 \u0639\u0644\u0649 http://127.0.0.1:" + PORT);
   } else {
-    console.log("[KING] \u0645\u0646\u0633\u0651\u0642 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u064A\u0639\u0645\u0644 \u0639\u0644\u0649 http://127.0.0.1:" + PORT + " \u2014 \u064A\u064F\u0637\u0644\u0642 " + FLEET_N + " \u0645\u062D\u0631\u0643\u0627\u062A");
-    pushLog("server", "\u{1F680} \u0627\u0646\u0637\u0644\u0642 KING-trading \u2014 " + FLEET_N + " \u0645\u062D\u0631\u0643\u0627\u062A \u0645\u0633\u062A\u0642\u0644\u0629\u060C \u0631\u0623\u0633 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \xF7 " + FLEET_N + " \u062A\u062F\u0627\u0648\u0644\u0627\u062A\u060C \u0643\u0644 \u0639\u0645\u064A\u0644\u0629 \u0628\u0645\u062D\u0631\u0643\u0647\u0627");
+    console.log("[AB-210-TRQ] \u0645\u0646\u0633\u0651\u0642 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u064A\u0639\u0645\u0644 \u0639\u0644\u0649 http://127.0.0.1:" + PORT + " \u2014 \u064A\u064F\u0637\u0644\u0642 " + FLEET_N + " \u0645\u062D\u0631\u0643\u0627\u062A");
+    pushLog("server", "\u{1F680} \u0627\u0646\u0637\u0644\u0642 AB-210-TRQ \u2014 " + FLEET_N + " \u0645\u062D\u0631\u0643\u0627\u062A \u0645\u0633\u062A\u0642\u0644\u0629\u060C \u0631\u0623\u0633 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \xF7 " + FLEET_N + " \u062A\u062F\u0627\u0648\u0644\u0627\u062A\u060C \u0643\u0644 \u0639\u0645\u0644\u064A\u0629 \u0628\u0645\u062D\u0631\u0643\u0647\u0627");
     const self = process.argv[1];
     for (let i = 1; i <= FLEET_N; i++) {
+      const engineEnv = (n) => ({ ...process.env, ABKING_SLOT: String(n), ABKING_FLEET_TOKEN: TOK });
       const child = spawn(process.execPath, [self], {
-        env: { ...process.env, ABKING_SLOT: String(i) },
+        env: engineEnv(i),
         stdio: ["ignore", "inherit", "inherit"],
         detached: false
       });
       child.on("exit", (code) => {
-        console.log("[KING] \u0645\u062D\u0631\u0643 " + i + " \u062E\u0631\u062C (" + code + ") \u2014 \u0625\u0639\u0627\u062F\u0629 \u062A\u0634\u063A\u064A\u0644 \u062E\u0644\u0627\u0644 5 \u062B");
+        console.log("[AB-210-TRQ] \u0645\u062D\u0631\u0643 " + i + " \u062E\u0631\u062C (" + code + ") \u2014 \u0625\u0639\u0627\u062F\u0629 \u062A\u0634\u063A\u064A\u0644 \u062E\u0644\u0627\u0644 5 \u062B");
         setTimeout(() => {
           try {
-            spawn(process.execPath, [self], { env: { ...process.env, ABKING_SLOT: String(i) }, stdio: ["ignore", "inherit", "inherit"], detached: false });
+            spawn(process.execPath, [self], { env: engineEnv(i), stdio: ["ignore", "inherit", "inherit"], detached: false });
           } catch {
           }
         }, 5e3);
@@ -6876,4 +6881,4 @@ srv.listen(PORT, "127.0.0.1", () => {
   }
 });
 initEngine();
-if (SLOT === 0) console.log("[KING] \u0627\u0644\u0645\u0646\u0633\u0651\u0642 \u062C\u0627\u0647\u0632 \u2014 \u0634\u063A\u0651\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0641\u064A \u0627\u0644\u062C\u0648\u0627\u0644 (\u064A\u0643\u062A\u0634\u0641 \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627)");
+if (SLOT === 0) console.log("[AB-210-TRQ] \u0627\u0644\u0645\u0646\u0633\u0651\u0642 \u062C\u0627\u0647\u0632 \u2014 \u0634\u063A\u0651\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0641\u064A \u0627\u0644\u062C\u0648\u0627\u0644 (\u064A\u0643\u062A\u0634\u0641 \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627)");
