@@ -63,6 +63,24 @@ function resetLadder(reason: string) {
 }
 
 function placeGroup(g: number, anchor: number) {
+  // ─── بوابة المواصفات (درس التلوث): لا تسليح أي أمر قبل توثيق مضاعف عقد
+  // العملة الحالية نفسها — مضاعف قديم=1 على عملة كـ PEPE (عقدها 520 ألف
+  // وحدة) يضخّم الحجم مئات آلاف المرات ───
+  if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
+    if (!S._ladMetaAt || Date.now() - S._ladMetaAt > 60000) { S._ladMetaAt = Date.now();
+      pushLog('server', '[ladder] انتظار توثيق مواصفات ' + S.config.displaySymbol + ' قبل تسليح المجموعة ' + (g + 1) + ' — لا أحجام بمضاعف غير موثق'); }
+    return;
+  }
+  // ─── درع مقياس السعر: مرساة تبعد أكثر من 5× عن السعر اللحظي = بيانات
+  // عملة أخرى تسربت (سعر BTC على رمز PEPE) — يُرفض التسليح كلياً ───
+  if (S.lastPrice > 0 && anchor > 0) {
+    const r = Math.max(anchor / S.lastPrice, S.lastPrice / anchor);
+    if (r > 5) {
+      pushLog('server', '[ladder] ⛔ مرساة المجموعة ' + (g + 1) + ' (' + fmtPx(anchor) +
+        ') تبعد ' + r.toFixed(0) + '× عن سعر ' + S.config.displaySymbol + ' — بيانات ملوّثة، يُرفض التسليح');
+      return;
+    }
+  }
   const short = ladderShort();
   const side = short ? 'sell' : 'buy';
   const sp = SPACINGS[Math.min(g, SPACINGS.length - 1)] / 100;
@@ -115,6 +133,15 @@ export function ladderTick(price: number) {
     emit(); return;
   }
   const cur = groupOrders(stNow.group);
+  // ─── إصلاح الجمود: انقلاب الاتجاه/فيتو الخطر ألغى أوامر المجموعة كلها
+  // وبلا مركز قائم — المجموعة تُعاد تسليحها عند السعر الحالي (مرة كل 30 ث
+  // كحد أقصى) وإلا وقف السلم للأبد وحجز دور التسلسل على الأسطول ───
+  if (!S.position && cur.length && cur.every(l => l.status === 'cancelled') && !(cur as any).some((l: any) => l.filledAt)) {
+    if (!S._ladReArmAt || Date.now() - S._ladReArmAt > 30000) { S._ladReArmAt = Date.now();
+      pushLog('server', '[ladder] أُلغيت أوامر المجموعة ' + (stNow.group + 1) + ' كاملة (انقلاب/فيتو) — يُعاد تسليحها من ' + fmtPx(price));
+      placeGroup(stNow.group, price); emit(); return; }
+    return;
+  }
   if (cur.length < GROUP_SIZE) return;                       // المجموعة لم تُسلّح كاملة بعد
   // «تم دخول الأوامر» = نُفِّذت فعلاً (filled) — لا يكفي وجودها على المنصة
   const filled = cur.filter(l => l.status === 'filled' || l.filledAt).length;

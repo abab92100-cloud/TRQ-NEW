@@ -35,11 +35,18 @@ if ! command -v termux-wake-lock >/dev/null 2>&1; then
   pkg install termux-api -y >/dev/null 2>&1 || true
 fi
 if command -v termux-wake-lock >/dev/null 2>&1; then
-  termux-wake-lock >/dev/null 2>&1 && echo "✓ قفل اليقظة مفعّل" || true
+  if termux-wake-lock >/dev/null 2>&1; then
+    echo "✓ قفل اليقظة مفعّل — السيرفر يعمل والشاشة مطفأة"
+  else
+    echo "⚠️ أمر قفل اليقظة موجود لكنه فشل — ثبّت تطبيق Termux:API من المتجر وافتحه مرة واحدة"
+    echo "  بدون قفل اليقظة يخنق أندرويد السيرفر في الخلفية وينقطع الاتصال"
+  fi
 else
   echo "! حزمة termux-api غير مثبتة — قد يقتل أندرويد السيرفر عند سكون الشاشة"
-  echo "  نفّذ: pkg install termux-api -y ثم ثبّت تطبيق Termux:API من المتجر"
+  echo "  نفّذ: pkg install termux-api -y ثم ثبّت تطبيق Termux:API من المتجر وافتحه مرة واحدة"
 fi
+echo "• مهم لعدم قطع الخلفية: إعدادات أندرويد ← التطبيقات ← Termux ← البطارية ← «غير مقيّد/بدون تحسينات»"
+echo "  وافعل المثل لتطبيق AB-210-TRQ نفسه — هذا يمنع خنق الاتصال عند إطفاء الشاشة"
 
 # 4) تحميل أحدث سيرفر — مع تحقق إلزامي قبل تشغيله
 echo "• تحميل أحدث سيرفر AB-210-TRQ..."

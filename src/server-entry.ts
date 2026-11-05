@@ -17,7 +17,7 @@ import {
   requestHalt, clearHalt, haltRequested, setFleetGate, resetState,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.2';
+const SRV_VER = 'AB-210-TRQ-1.1.3';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -356,5 +356,8 @@ srv.listen(PORT, '127.0.0.1', () => {
   }
 });
 
-initEngine();
-if (SLOT === 0) console.log('[AB-210-TRQ] المنسّق جاهز — شغّل التطبيق في الجوال (يكتشف السيرفر تلقائيًا)');
+/* المنسّق لا يشغّل محركاً محلياً إطلاقاً (كان محركاً سادساً كاملاً بقناة XBT
+   ورادار ومزامنات — حمل زائد على المنصة ومصدر طلبات 429 بلا فائدة). دوره
+   فقط: إطلاق المحركات الخمسة، تجميع حالتها، بث بوابات الأسطول والتوكن */
+if (SLOT === 0) console.log('[AB-210-TRQ] المنسّق جاهز — شغّل التطبيق في الجوال (يكتشف السيرفر تلقائيًا) — لا محرك داخل المنسّق');
+else initEngine();

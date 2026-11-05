@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.2 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.2" --notes "توقيع ثابت دائم (إصلاح التثبيت فوق النسخ القديمة) — خلفية دائمة + سلّم المالك (0.30→0.70%، انتظارات 2/3/4/4س، أحجام تصاعدية ×1.25، دخول متسلسل)" --latest 2>/dev/null || \
-            gh release upload v1.1.2 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.3 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.3" --notes "إصلاح البيانات الملوّثة (صفقة PEPE بسعر BTC): تطهير تلقائي للحالة الورقية عند الإقلاع + بوابة مواصفات العقد للسلّم + إصلاح جمود المجموعة الملغاة — شريط الأساطيل الخمسة فوق الشارت (اضغط أي أسطول لفتح شارته) + إصلاح «الحجم undefined» + إزالة المحرك السادس من المنسّق" --latest 2>/dev/null || \
+            gh release upload v1.1.3 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -120,6 +120,35 @@ function WsBar() {
   );
 }
 
+/* ---------- شريط الأساطيل فوق الشارت ---------- */
+function FleetStrip() {
+  const fleet = (S as any).fleet;
+  const sel = ((window as any).__FLEET_SEL || 0) as number;
+  if (!Array.isArray(fleet) || fleet.length === 0) return null;
+  return (
+    <div style={{ display:'flex', gap:6, overflowX:'auto', padding:'2px 0 8px', fontSize:12, alignItems:'center', WebkitOverflowScrolling:'touch' }}>
+      <span className={'pill' + (sel ? '' : ' on')} title="عرض مدمج لكل المحركات — اضغط على أي أسطول لعرض شارته وبياناته"
+        onClick={() => { (window as any).__FLEET_SEL = 0; remoteSync().catch(() => {}); }}
+        style={{ flex:'0 0 auto', whiteSpace:'nowrap', cursor:'pointer', opacity: sel ? 0.55 : 1 }}>
+        الأسطول كامل
+      </span>
+      {fleet.map((f: any, i: number) => (
+        <span key={f.slot || i}
+          className={'pill' + (f.position ? ' on' : f.running ? ' warn' : '')}
+          title={'أسطول ' + (f.slot || (i + 1)) + ' — ' + (f.disp || '?') + ' — رصيد ' + (f.balance || 0) + '$ — اضغط لفتح شارته وبياناته'}
+          onClick={() => { (window as any).__FLEET_SEL = (f.slot || i + 1); remoteSync().catch(() => {}); }}
+          style={{ flex:'0 0 auto', whiteSpace:'nowrap', cursor:'pointer',
+            outline: sel === (f.slot || i + 1) ? '2px solid #2ecc71' : 'none',
+            outlineOffset: 1 }}>
+          <i></i>{f.disp || '?'}
+          {f.position ? <b style={{ color: (f.net || 0) >= 0 ? '#2ecc71' : '#f74d5d', marginInlineStart: 4 }}>
+            {(f.net || 0) >= 0 ? '+' : ''}{(f.net || 0).toFixed(2)}</b> : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /* ---------- الرئيسية ---------- */
 function HomeScreen() {
   const d = desk();
@@ -148,6 +177,7 @@ function HomeScreen() {
             </div>
           </div>
         </div>
+        <FleetStrip />
         <Chart />
         <WsBar />
         <div className="subtle" style={{ textAlign: 'center', marginTop: 4 }}>
@@ -275,7 +305,7 @@ function PosScreen() {
             <div className="row"><b className={pos.side === 'long' ? 'up' : 'dn'}>{pos.side === 'long' ? 'LONG' : 'SHORT'} {pos.disp || S.config.displaySymbol}</b>
               <span className={'mono ' + ((pos.unrealized || 0) >= 0 ? 'up' : 'dn')} style={{ fontSize: 16, fontWeight: 800 }}>{fmtUsd(pos.unrealized)} $</span></div>
             <div className="subtle" style={{ marginTop: 4 }}>
-              {'الدخول ' + fmtPx(pos.entry) + ' · الحجم ' + pos.qty + ' · الرافعة ×' + (pos.leverage || S.config.leverage)}
+              {'الدخول ' + fmtPx(pos.entry) + ' · الحجم ' + ((pos.qty != null ? pos.qty : pos.size) ?? '—') + ' · الرافعة ×' + (pos.leverage || S.config.leverage)}
             </div>
             <div className="subtle"> {'سعر التصفية: '}{S.liqPrice ? fmtPx(S.liqPrice) : '—'}</div>
           </div>
@@ -481,28 +511,6 @@ export default function App() {
           </em>
         </span>
       </header>
-      {Array.isArray((S as any).fleet) && (S as any).fleet.length > 0 && (
-        <div className="fleet-strip" style={{ display:'flex', gap:6, overflowX:'auto', padding:'6px 10px', fontSize:12, alignItems:'center' }}>
-          <span className="pill" title="عرض مدمج لكل المحركات — اضغط على أي محرك في الشريط لعرضه منفردًا"
-            onClick={() => { (window as any).__FLEET_SEL = 0; remoteSync().catch(() => {}); }}
-            style={{ flex:'0 0 auto', whiteSpace:'nowrap', cursor:'pointer', opacity: sel ? 0.55 : 1 }}>
-            الأسطول
-          </span>
-          {(S as any).fleet.map((f: any, i: number) => (
-            <span key={f.slot || i}
-              className={'pill' + (f.position ? ' on' : f.running ? ' warn' : '')}
-              title={'محرك ' + (f.slot || (i + 1)) + ' — رصيد ' + (f.balance || 0) + '$ — اضغط لعرضه'}
-              onClick={() => { (window as any).__FLEET_SEL = (f.slot || i + 1); remoteSync().catch(() => {}); }}
-              style={{ flex:'0 0 auto', whiteSpace:'nowrap', cursor:'pointer',
-                outline: sel === (f.slot || i + 1) ? '2px solid #2ecc71' : 'none',
-                outlineOffset: 1 }}>
-              <i></i>{f.disp || '?'}
-              {f.position ? <b style={{ color: (f.net || 0) >= 0 ? '#2ecc71' : '#f74d5d', marginInlineStart: 4 }}>
-                {(f.net || 0) >= 0 ? '+' : ''}{(f.net || 0).toFixed(2)}</b> : null}
-            </span>
-          ))}
-        </div>
-      )}
       <main>
         {tab === 'home' && <HomeScreen />}
         {tab === 'radar' && <RadarScreen />}
