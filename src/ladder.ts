@@ -67,6 +67,14 @@ function placeGroup(g: number, anchor: number) {
   // العملة الحالية نفسها — مضاعف قديم=1 على عملة كـ PEPE (عقدها 520 ألف
   // وحدة) يضخّم الحجم مئات آلاف المرات ───
   if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
+    // المواصفات الموثقة سابقاً لنفس العملة (خريطة الذاكرة) تُستخدم فوراً —
+    // فشل الجلب (429/شبكة) لا يوقف التسليح أبداً لعملة نعرف عقدها
+    const km = (S._multMap || {})[S.config.symbol] || 0;
+    const kt = (S._tickMap || {})[S.config.symbol] || 0;
+    if (km > 0) { S.multiplier = km; if (kt > 0) S.tickSize = kt; S._metaSym = S.config.symbol;
+      pushLog('server', '[ladder] مواصفات ' + S.config.displaySymbol + ' من الذاكرة: مضاعف ' + km + ' — التسليح يكمل'); }
+  }
+  if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
     if (!S._ladMetaAt || Date.now() - S._ladMetaAt > 60000) { S._ladMetaAt = Date.now();
       pushLog('server', '[ladder] انتظار توثيق مواصفات ' + S.config.displaySymbol + ' قبل تسليح المجموعة ' + (g + 1) + ' — لا أحجام بمضاعف غير موثق'); }
     return;

@@ -40,24 +40,28 @@ export default function Chart() {
   useEffect(() => {
     let alive = true;
     const key = S.config.symbol + ':' + gran;
+    /* عدّاد مستقل لكل فريم: الفريم السابق لا يشاركه علم التحميل فيمنع فريمًا
+       جديدًا من الجلب أبدًا، وإنهاؤه المتأخر كان يمحو بيانات الفريم الحالي —
+       هذا هو سبب «يتحمل فريم وينتقل لفريم ثاني يرفض التحميل» */
+    const st = { loading: false, fails: 0 };
     dataRef.current = { key, candles: cacheGet(key), loading: false, fails: 0 };
     const t=setTimeout(()=>forceDraw(n => n + 1),0);
     const load = () => {
-      if (dataRef.current.loading) return;
-      dataRef.current.loading = true;
+      if (st.loading) return;
+      st.loading = true;
       fetchKlines(S.config.symbol, gran).then(k => {
         if (!alive) return;
+        st.loading = false;
         if (!k.length) throw new Error('empty');
         const cs = k.slice(-DATA_CAP);
         cacheSet(key, cs);
-        dataRef.current = { key, candles: cs, loading: false, fails: 0, at: Date.now() };
+        dataRef.current = { key, candles: cs, loading: false, fails: st.fails, at: Date.now() };
         if (typeof window !== 'undefined') window.__chartDbg = { key, n: cs.length, first: cs[0] && cs[0].t, last: cs.length && cs[cs.length - 1].t, at: Date.now() };
         forceDraw(n => n + 1);
       }).catch(() => {
         if (!alive) return;
-        const f = (dataRef.current.fails || 0) + 1;
-        dataRef.current.loading = false; dataRef.current.fails = f;
-        const wait = Math.min(60000, 4000 * Math.pow(2, Math.max(0, f - 1)));
+        st.loading = false; st.fails++;
+        const wait = Math.min(20000, 2500 * Math.pow(2, Math.max(0, st.fails - 1)));
         setTimeout(() => { if (alive) load(); }, wait);
       });
     };

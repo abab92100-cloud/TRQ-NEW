@@ -120,6 +120,18 @@ function WsBar() {
   );
 }
 
+/* ---------- تنبيه السيرفر — المحرك الداخلي يتوقف في الخلفية ---------- */
+function ServerBanner() {
+  if ((window as any).__ABKING_REMOTE) return null; // السيرفر يعمل — وضع المرآة
+  return (
+    <div style={{ background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.5)', borderRadius:10,
+      padding:'8px 12px', marginBottom:6, color:'#f59e0b', fontWeight:700, fontSize:11.5, textAlign:'center' }}>
+      ⚠ لا يوجد سيرفر Termux — التطبيق يعمل بمحركه الداخلي وسيتوقف بالخلفية، ولن يظهر شريط الأساطيل.
+      شغّل السيرفر من Termux (bash trg-setup.sh) ثم أعد فتح التطبيق
+    </div>
+  );
+}
+
 /* ---------- شريط الأساطيل فوق الشارت ---------- */
 function FleetStrip() {
   const fleet = (S as any).fleet;
@@ -177,6 +189,7 @@ function HomeScreen() {
             </div>
           </div>
         </div>
+        <ServerBanner />
         <FleetStrip />
         <Chart />
         <WsBar />

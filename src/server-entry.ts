@@ -17,7 +17,7 @@ import {
   requestHalt, clearHalt, haltRequested, setFleetGate, resetState,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.3';
+const SRV_VER = 'AB-210-TRQ-1.1.4';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -29,16 +29,19 @@ const maskedKeys = (k: any) => (k && k.apiKey ? { apiKey: '••••' + Strin
 const TOK = String((typeof localStorage !== 'undefined' && localStorage.getItem('abking:token')) || '');
 // توكن الأسطول: يمرره المنسّق للمحركات عند إطلاقها حتى تقبل أوامره (كانت تُرفض 403 قبلاً)
 const FLEET_TOK = String((process.env as any).ABKING_FLEET_TOKEN || '');
-const ALLOWED_ORIGINS = 'https://localhost, http://localhost, capacitor://localhost';
+/* أصل CORS الصحيح: قائمة مفصولة بفواصل غير صالحة كقيمة ACAO — المتصفح يرفضها.
+   نرد بنفس أصل الطلب إن كان مسموحاً (تطبيق الجوال فقط) — لا نجيز أي أصل خارجي */
+const ALLOWED_ORIGINS = ['https://localhost', 'http://localhost', 'capacitor://localhost', 'ionic://localhost'];
+const originFor = (req: any) => { const o = String(req.headers.origin || ''); return ALLOWED_ORIGINS.includes(o) ? o : 'capacitor://localhost'; };
 const cmdAuth = (req: any) => {
   const h = String(req.headers['x-trq-token'] || '');
   return !!h && (h === TOK || (!!FLEET_TOK && h === FLEET_TOK));
 };
 
-function send(res, code, obj) {
+function send(res, code, obj, req?: any) {
   res.writeHead(code, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': ALLOWED_ORIGINS,
+    'Access-Control-Allow-Origin': originFor(req || { headers: {} }),
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-TRQ-Token',
     'Cache-Control': 'no-store',
@@ -168,7 +171,7 @@ const srv = createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        'Access-Control-Allow-Origin': ALLOWED_ORIGINS,
+        'Access-Control-Allow-Origin': originFor(req),
         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, X-TRQ-Token',
       });
@@ -178,7 +181,7 @@ const srv = createServer(async (req, res) => {
 
     if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/health'))
       return send(res, 200, { ok: true, name: 'AB-210-TRQ Fleet Server', version: SRV_VER, fleet: FLEET_N,
-        at: Date.now(), pid: (process as any).pid });
+        at: Date.now(), pid: (process as any).pid }, req);
 
     if (SLOT > 0) {
       if (req.method === 'GET' && u.pathname === '/state') {
@@ -192,41 +195,41 @@ const srv = createServer(async (req, res) => {
           const f=rp? ((r.side==='short'?1:-1)*(r.entry-rp)*rm*r.qty-(r.fees||0)-feeEst):0;
           return {...r, floatNet: Math.round((f+Number.EPSILON)*100)/100}; }),
           logs:(S.logs||[]).slice(-80)};
-        return send(res, 200, { ok: true, at: Date.now(), state: st }); }
+        return send(res, 200, { ok: true, at: Date.now(), state: st }, req); }
       if (req.method === 'POST' && u.pathname === '/cmd') {
-        if (!cmdAuth(req)) return send(res, 403, { ok: false, error: 'unauthorized' });
+        if (!cmdAuth(req)) return send(res, 403, { ok: false, error: 'unauthorized' }, req);
         let body = '';
         for await (const chunk of req) body += chunk;
         let j: any = {};
         try { j = JSON.parse(body || '{}'); } catch{}
         const a = String(j.action || '');
         switch (a) {
-          case 'start': startBot(); return send(res, 200, { ok: true });
-          case 'pause': pauseBot(); return send(res, 200, { ok: true });
-          case 'stop': await stopBot(); return send(res, 200, { ok: true });
-          case 'newCycle': newCycle(); return send(res, 200, { ok: true });
-          case 'saveCfg': saveCfg(j.cfg || {}); return send(res, 200, { ok: true });
+          case 'start': startBot(); return send(res, 200, { ok: true }, req);
+          case 'pause': pauseBot(); return send(res, 200, { ok: true }, req);
+          case 'stop': await stopBot(); return send(res, 200, { ok: true }, req);
+          case 'newCycle': newCycle(); return send(res, 200, { ok: true }, req);
+          case 'saveCfg': saveCfg(j.cfg || {}); return send(res, 200, { ok: true }, req);
           case 'saveKeys': {
             const ok = await saveKeys(j.keys || {});
-            return send(res, 200, { ok: !!ok, error: ok ? null : 'فشل الاتصال بالمنصة — تحقّق من المفاتيح' });
+            return send(res, 200, { ok: !!ok, error: ok ? null : 'فشل الاتصال بالمنصة — تحقّق من المفاتيح' }, req);
           }
-          case 'clearKeys': clearKeys(); return send(res, 200, { ok: true });
-          case 'scanRadar': await scanRadar(); return send(res, 200, { ok: true, radar: S.radar || null });
-          case 'repair': { const rr = await repairAccount(); return send(res, 200, rr); }
-          case 'alignStrategy': { const ch = alignStrategy(j.cfg||{}); return send(res, 200, { ok:true, changed:!!ch, fp:strategyFingerprint() }); }
-          case 'fingerprint': return send(res, 200, { ok:true, fp:strategyFingerprint(), slot:SLOT });
-          case 'gridStatus': return send(res, 200, { ok:true, slot:SLOT, status:gridStatus() });
-          case 'cancelEntries': { const rr=await cancelEntryOrders(); return send(res,200,rr); }
-          case 'cleanStart': { const rr=await cleanStart(); return send(res,200,rr); }
-          case 'enableEntries': return send(res,200, enableEntries());
-          case 'syncBooks': return send(res,200, syncBooks(j.totalEq, j.share));
-          case 'resetState': return send(res,200, resetState());
-          case 'fleetGate': return send(res,200, setFleetGate(j.opened, SLOT));
-          case 'ensureFour': { const need=ensureGroupFour(); return send(res, 200, { ok:true, need }); }
-          default: return send(res, 400, { ok: false, error: 'إجراء غير معروف: ' + a });
+          case 'clearKeys': clearKeys(); return send(res, 200, { ok: true }, req);
+          case 'scanRadar': await scanRadar(); return send(res, 200, { ok: true, radar: S.radar || null }, req);
+          case 'repair': { const rr = await repairAccount(); return send(res, 200, rr, req); }
+          case 'alignStrategy': { const ch = alignStrategy(j.cfg||{}); return send(res, 200, { ok:true, changed:!!ch, fp:strategyFingerprint() }, req); }
+          case 'fingerprint': return send(res, 200, { ok:true, fp:strategyFingerprint(), slot:SLOT }, req);
+          case 'gridStatus': return send(res, 200, { ok:true, slot:SLOT, status:gridStatus() }, req);
+          case 'cancelEntries': { const rr=await cancelEntryOrders(); return send(res,200,rr, req); }
+          case 'cleanStart': { const rr=await cleanStart(); return send(res,200,rr, req); }
+          case 'enableEntries': return send(res,200, enableEntries(), req);
+          case 'syncBooks': return send(res,200, syncBooks(j.totalEq, j.share), req);
+          case 'resetState': return send(res,200, resetState(), req);
+          case 'fleetGate': return send(res,200, setFleetGate(j.opened, SLOT), req);
+          case 'ensureFour': { const need=ensureGroupFour(); return send(res, 200, { ok:true, need }, req); }
+          default: return send(res, 400, { ok: false, error: 'إجراء غير معروف: ' + a }, req);
         }
       }
-      send(res, 404, { ok: false, error: 'not found' });
+      send(res, 404, { ok: false, error: 'not found' }, req);
       return;
     }
 
@@ -239,18 +242,18 @@ const srv = createServer(async (req, res) => {
         const st = slotStates[k];
         if (st && st.config && st.config.symbol) taken.push({ sym: st.config.symbol, holder: k });
       }
-      return send(res, 200, { ok: true, taken });
+      return send(res, 200, { ok: true, taken }, req);
     }
 
     if (req.method === 'GET' && u.pathname === '/state') {
       const sel = parseInt(u.searchParams.get('sel') || '0', 10) || 0;
       const st = mergedState(sel);
-      if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: 'idle', heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } });
-      return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: st });
+      if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: 'idle', heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } }, req);
+      return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: st }, req);
     }
 
     if (req.method === 'POST' && u.pathname === '/cmd') {
-      if (!cmdAuth(req)) return send(res, 403, { ok: false, error: 'unauthorized' });
+      if (!cmdAuth(req)) return send(res, 403, { ok: false, error: 'unauthorized' }, req);
       let body = '';
       for await (const chunk of req) body += chunk;
       let j: any = {};
@@ -261,46 +264,46 @@ const srv = createServer(async (req, res) => {
         const eq = Number(j.totalEq) || 0, share = eq > 0 ? Math.round((eq / FLEET_N) * 100) / 100 : 0;
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 15000, { action: 'syncBooks', totalEq: eq, share })));
-        return send(res, 200, { ok: true, equity: eq, share, results: rs });
+        return send(res, 200, { ok: true, equity: eq, share, results: rs }, req);
       }
       if (a === 'stop' || a === 'pause' || a === 'start') {
         try{ if(a==='start') clearHalt(); else requestHalt(a==='stop'?'إيقاف':'توقف'); }catch{}
         const payload = { action: a };
         Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, payload))).catch(()=>{});
-        return send(res, 200, { ok: true, instant: true, halted: a !== 'start' });
+        return send(res, 200, { ok: true, instant: true, halted: a !== 'start' }, req);
       }
-      if (a === 'haltState') return send(res, 200, { ok: true, halted: haltRequested() });
+      if (a === 'haltState') return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === 'resetAll') {
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 30000, { action: 'resetState' })));
-        return send(res, 200, { ok: true, results: rs });
+        return send(res, 200, { ok: true, results: rs }, req);
       }
       if (a === 'enableAll') {
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, { action: 'enableEntries' })));
-        return send(res, 200, { ok: true, results: rs });
+        return send(res, 200, { ok: true, results: rs }, req);
       }
       if (a === 'cleanAll') {
         const first = await jfetch('http://127.0.0.1:' + (BASE_PORT + 1) + '/cmd', 60000, { action: 'cleanStart' });
         const rest = await Promise.all(Array.from({ length: Math.max(0, FLEET_N - 1) }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 2 + i) + '/cmd', 30000, { action: 'cleanStart' })));
-        return send(res, 200, { ok: true, first, rest });
+        return send(res, 200, { ok: true, first, rest }, req);
       }
       if (a === 'stabilize') {
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 15000, { action: 'cancelEntries' })));
-        return send(res, 200, { ok: true, results: rs });
+        return send(res, 200, { ok: true, results: rs }, req);
       }
       if (a === 'alignFleet') {
         const base = j.cfg || {};
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, { action: 'alignStrategy', cfg: base })));
-        return send(res, 200, { ok: true, applied: rs.map(r => !!(r && r.ok)) });
+        return send(res, 200, { ok: true, applied: rs.map(r => !!(r && r.ok)) }, req);
       }
       if (a === 'repair') {
         const r1 = await jfetch('http://127.0.0.1:' + (BASE_PORT + 1) + '/cmd', 45000, j);
-        return send(res, 200, r1 || { ok: false, error: 'لم يرد المحرك' });
+        return send(res, 200, r1 || { ok: false, error: 'لم يرد المحرك' }, req);
       }
       let payload = j;
       if (a === 'saveCfg' && j.cfg) {
@@ -314,14 +317,14 @@ const srv = createServer(async (req, res) => {
       const ok = results.some(r => r && r.ok);
       if (a === 'scanRadar') {
         const st = mergedState();
-        return send(res, 200, { ok: true, radar: st ? (st.radar || null) : null });
+        return send(res, 200, { ok: true, radar: st ? (st.radar || null) : null }, req);
       }
-      return send(res, 200, { ok, fleet: results.map(r => !!(r && r.ok)) });
+      return send(res, 200, { ok, fleet: results.map(r => !!(r && r.ok)) }, req);
     }
 
-    send(res, 404, { ok: false, error: 'not found' });
+    send(res, 404, { ok: false, error: 'not found' }, req);
   } catch (e) {
-    send(res, 500, { ok: false, error: String((e && (e as any).message) || e) });
+    send(res, 500, { ok: false, error: String((e && (e as any).message) || e) }, req);
   }
 });
 
