@@ -394,24 +394,30 @@ if (typeof navigator !== "undefined" && navigator.onLine !== void 0) {
 // src/ladder.ts
 var GROUP_SIZE = 4;
 var SPACINGS = [0.3, 0.4, 0.5, 0.6, 0.7];
-var WAITS_MS = [3 * 36e5, 4 * 36e5, 4 * 36e5, 4 * 36e5];
+var WAITS_MS = [2 * 36e5, 3 * 36e5, 4 * 36e5, 4 * 36e5];
 var ASC = 1.25;
 function ladderOn() {
   return !!(S.config && S.config.ladderMode);
 }
 function ladderState() {
-  if (!S._ladder) S._ladder = { active: false, group: 0, anchor: 0, waitUntil: 0, winExtreme: 0, harvestAtStart: 0, symbol: "" };
+  if (!S._ladder) S._ladder = { active: false, group: 0, anchor: 0, waitUntil: 0, winExtreme: 0, harvestAtStart: 0, symbol: "", maxed: false };
   return S._ladder;
 }
+var ladderShort = () => S.position ? S.position.side === "short" : S.config.direction === "short";
 function ladderParts() {
   const equity = (S.exEquity != null ? S.exEquity : S.config.cycleBalance) || 0;
   const share = Math.max(1, equity / 5);
-  const ratios = [0, 1, 2, 3, 4].map((i) => Math.pow(ASC, i));
-  const sum = ratios.reduce((a, b) => a + b, 0);
-  return ratios.map((r) => Math.max(1, share * r / sum));
+  const part = Math.max(1, share / 5);
+  return [0, 1, 2, 3, 4].map(() => part);
+}
+function groupBudgets(g) {
+  const part = ladderParts()[Math.min(g, 4)];
+  const r = [0, 1, 2, 3].map((k) => Math.pow(ASC, k));
+  const sum = r.reduce((a, b) => a + b, 0);
+  return r.map((x) => Math.max(1, part * x / sum));
 }
 function groupOrders(g) {
-  return (S.grid || []).filter((x) => x.ladderGroup === g);
+  return (S.grid || []).filter((x) => x.ladderGroup === g && x.origin === "ladder");
 }
 function clearLadderOrders() {
   for (const g of S.grid) {
@@ -421,18 +427,30 @@ function clearLadderOrders() {
     }
   }
 }
+function resetLadder(reason) {
+  clearLadderOrders();
+  const st = ladderState();
+  st.active = false;
+  st.group = 0;
+  st.anchor = 0;
+  st.waitUntil = 0;
+  st.winExtreme = 0;
+  st.harvestAtStart = S.cycleHarvested || 0;
+  st.symbol = S.config.symbol;
+  st.maxed = false;
+  if (reason) pushLog("server", "[ladder] " + reason);
+}
 function placeGroup(g, anchor) {
-  const short = S.config.direction === "short";
+  const short = ladderShort();
   const side = short ? "sell" : "buy";
   const sp = SPACINGS[Math.min(g, SPACINGS.length - 1)] / 100;
-  const budget = ladderParts()[Math.min(g, 4)];
-  const perOrderUsd = budget / GROUP_SIZE;
+  const budgets = groupBudgets(g);
   let placed = 0;
   for (let k = 0; k < GROUP_SIZE; k++) {
     const px = short ? anchor * (1 + k * sp) : anchor * (1 - k * sp);
     if (!(px > 0)) continue;
     const mult = S.multiplier || 1;
-    let q = perOrderUsd / (mult * px);
+    let q = budgets[k] / (mult * px);
     q = capEntryQty(q, px);
     if (!(q >= 1)) continue;
     S.grid.push({
@@ -453,67 +471,69 @@ function placeGroup(g, anchor) {
     placed++;
   }
   S.grid.sort((a, b) => b.price - a.price);
-  pushLog("server", "[ladder] group " + g + " anchor " + fmtPx(anchor) + " spacing " + sp * 100 + "% \u2014 " + placed + " orders, budget $" + budget.toFixed(2));
+  pushLog("server", "[ladder] \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + "/5 \u0645\u0646 " + fmtPx(anchor) + " \u2014 \u062A\u0628\u0627\u0639\u062F " + (sp * 100).toFixed(2) + "% \u2014 " + placed + " \u0623\u0648\u0627\u0645\u0631\u060C \u0623\u062D\u062C\u0627\u0645 \u062A\u0635\u0627\u0639\u062F\u064A\u0629 \xD71.25 (\u0627\u0644\u0623\u0648\u0644 \u0623\u0635\u063A\u0631\u0647\u0627)");
 }
 function ladderTick(price) {
   if (!ladderOn() || S.status !== "running" || !(price > 0)) return;
   const st = ladderState();
-  if (st.active && st.symbol !== S.config.symbol) {
-    clearLadderOrders();
-    st.active = false;
+  if (st.active && st.symbol !== S.config.symbol) resetLadder("\u062A\u063A\u064A\u0651\u0631\u062A \u0627\u0644\u0639\u0645\u0644\u0629 \u0625\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0633\u0644\u0645 \u062C\u062F\u064A\u062F");
+  const short = ladderShort();
+  const stNow = ladderState();
+  const harvestedNow = (S.cycleHarvested || 0) - (stNow.harvestAtStart || 0);
+  if (stNow.active && stNow.waitUntil && harvestedNow > 0) {
+    pushLog("server", "[ladder] \u062C\u0646\u064A +" + fmtUsd(harvestedNow) + "$ \u0623\u062B\u0646\u0627\u0621 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631 \u2014 \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0633\u0644\u0645 \u0648\u0628\u062F\u0621 \u062C\u062F\u064A\u062F \u0628\u0639\u062F \u0627\u0644\u062F\u0631\u0627\u0633\u0629");
+    resetLadder("");
+    return;
   }
-  const short = S.config.direction === "short";
-  if (st.waitUntil && Date.now() < st.waitUntil) {
-    if (short) st.winExtreme = Math.max(st.winExtreme || price, price);
-    else st.winExtreme = st.winExtreme ? Math.min(st.winExtreme, price) : price;
-  }
-  if (!st.active) {
-    st.active = true;
-    st.group = 0;
-    st.anchor = price;
-    st.symbol = S.config.symbol;
-    st.waitUntil = 0;
-    st.winExtreme = price;
-    st.harvestAtStart = S.cycleHarvested || 0;
-    placeGroup(0, price);
+  if (!stNow.active) {
+    if (!entryGateOpen()) return;
+    stNow.active = true;
+    stNow.group = 0;
+    stNow.anchor = S.position ? S.position.entry || price : price;
+    stNow.symbol = S.config.symbol;
+    stNow.waitUntil = 0;
+    stNow.winExtreme = price;
+    stNow.harvestAtStart = S.cycleHarvested || 0;
+    placeGroup(0, stNow.anchor);
     emit();
     return;
   }
-  const cur = groupOrders(st.group);
+  const cur = groupOrders(stNow.group);
   if (cur.length < GROUP_SIZE) return;
-  const filled = cur.filter((l) => l.status === "filled" || l.status === "open" || l.filledAt).length;
+  const filled = cur.filter((l) => l.status === "filled" || l.filledAt).length;
   if (filled < GROUP_SIZE) return;
-  if (!st.waitUntil) {
-    const w = WAITS_MS[Math.min(st.group, WAITS_MS.length - 1)] || 4 * 36e5;
-    st.waitUntil = Date.now() + w;
-    st.winExtreme = price;
-    st.harvestAtStart = S.cycleHarvested || 0;
-    pushLog("server", "[ladder] group " + st.group + " fully filled \u2014 waiting " + w / 36e5 + "h, extreme so far " + fmtPx(st.winExtreme));
-    return;
-  }
-  if (Date.now() < st.waitUntil) return;
-  const harvested = (S.cycleHarvested || 0) - (st.harvestAtStart || 0);
-  if (harvested > 0) {
-    pushLog("server", "[ladder] profit harvested during wait (+" + fmtUsd(harvested) + "$) \u2014 reset to group 0");
-    clearLadderOrders();
-    st.group = 0;
-    st.anchor = price;
-    st.symbol = S.config.symbol;
-    st.waitUntil = 0;
-    st.winExtreme = price;
-    st.harvestAtStart = S.cycleHarvested || 0;
-    placeGroup(0, price);
+  if (!stNow.waitUntil) {
+    const w = WAITS_MS[Math.min(stNow.group, WAITS_MS.length - 1)];
+    stNow.waitUntil = Date.now() + w;
+    stNow.winExtreme = price;
+    stNow.harvestAtStart = S.cycleHarvested || 0;
+    pushLog("server", "[ladder] \u0646\u064F\u0641\u0650\u0651\u0630\u062A \u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (stNow.group + 1) + "/5 \u0643\u0627\u0645\u0644\u0629 \u2014 \u062A\u0648\u0642\u0641 \u0627\u0644\u062F\u062E\u0648\u0644 " + w / 36e5 + " \u0633\u0627\u0639\u0627\u062A\u060C \u064A\u064F\u062A\u062A\u0628\u064E\u0651\u0639 " + (short ? "\u0623\u0639\u0644\u0649" : "\u0623\u062F\u0646\u0649") + " \u0633\u0639\u0631 \u0648\u0635\u0644 \u0644\u0647 \u0627\u0644\u0633\u0639\u0631 \u062E\u0644\u0627\u0644\u0647\u0627");
     emit();
     return;
   }
-  const next = st.group + 1;
-  if (next >= SPACINGS.length) {
-    st.waitUntil = 0;
+  if (Date.now() < stNow.waitUntil) {
+    if (short) stNow.winExtreme = Math.max(stNow.winExtreme || price, price);
+    else stNow.winExtreme = stNow.winExtreme ? Math.min(stNow.winExtreme, price) : price;
     return;
   }
-  const anchor = st.winExtreme || price;
-  st.group = next;
-  st.waitUntil = 0;
+  const next = stNow.group + 1;
+  if (next >= SPACINGS.length) {
+    if (!stNow.maxed) {
+      stNow.maxed = true;
+      pushLog("server", "[ladder] \u0627\u0643\u062A\u0645\u0644\u062A \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0627\u062A \u0627\u0644\u062E\u0645\u0633 (20 \u0623\u0645\u0631\u0627\u064B) \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u0625\u0636\u0627\u0641\u064A\u0629 \u062D\u062A\u0649 \u064A\u064F\u062C\u0646\u0649 \u0627\u0644\u0631\u0628\u062D");
+      emit();
+    }
+    return;
+  }
+  if (!S.position) {
+    resetLadder("\u0627\u0644\u0645\u0631\u0643\u0632 \u0645\u063A\u0644\u0642 \u0628\u0644\u0627 \u062C\u0646\u064A \u2014 \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0633\u0644\u0645");
+    return;
+  }
+  const anchor = stNow.winExtreme || price;
+  stNow.group = next;
+  stNow.waitUntil = 0;
+  stNow.winExtreme = price;
+  stNow.maxed = false;
   placeGroup(next, anchor);
   emit();
 }
@@ -963,7 +983,8 @@ var S = {
     patienceHrs: 24,
     patienceUsd: 0,
     gapMode: false,
-    ladderMode: true
+    ladderMode: true,
+    seqMode: true
   },
   status: "idle",
   heartbeat: 0,
@@ -1611,6 +1632,26 @@ function setFleetGate(opened, slot) {
 }
 function fleetFullNow() {
   return Math.max(0, Number(S._exOpenCount) || 0) >= 5;
+}
+function entryGateOpen() {
+  try {
+    if (S.status !== "running") return false;
+    if (S.position) return true;
+    if (!S._entriesEnabled) return false;
+    if (S._noNewEntries) return false;
+    if (batchHoldActive()) return false;
+    try {
+      if (toxicBlocked(S.config.direction)) return false;
+    } catch (e) {
+      logSwallow("silent-catch", e);
+    }
+    if (S.config.seqMode === true && (Number(S._fleetOpened) || 0) < (Number(S._mySlot) || 1) - 1) return false;
+    if (fleetFullNow()) return false;
+    if ((S._fleetTaken || []).map(String).includes(String(S.config.symbol))) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 function openNextReady() {
   if (!S._nextSymbol || !S._nextReady) return false;
@@ -2486,7 +2527,7 @@ async function softTopUp() {
   }
   if (!(px > 0)) {
     const gIdx = Math.min(5, Math.max(1, Number(S._groupIdx) || 1));
-    const stepPct = [25e-4, 35e-4, 5e-3, 65e-4, 75e-4][gIdx - 1];
+    const stepPct = [3e-3, 4e-3, 5e-3, 6e-3, 7e-3][gIdx - 1];
     const anchor = short ? Math.max(gAnchor, cur) : Math.min(gAnchor, cur);
     for (let k = 1; k <= 4; k++) {
       const pct = stepPct * k;
@@ -2614,6 +2655,7 @@ function resetState() {
   S._groupExtreme = 0;
   S._groupAnchor = 0;
   S._groupPlacedTotal = 0;
+  S._ladder = null;
   S.recentCoins = {};
   S._nextReady = false;
   S._nextSymbol = null;
@@ -2667,7 +2709,7 @@ function strategyFingerprint() {
     "tp:" + (Number(c.tpUsd) > 0 ? "usd" + Number(c.tpUsd) : "net" + Number(c.tpNet || 0)),
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 3h/4h/4h/4h" : "ladder:off"
+    c.ladderMode ? "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3095,6 +3137,14 @@ function realBatchFills() {
   return Math.max(0, Math.min(20, Number(S._batchFills) || 0));
 }
 function batchHoldActive() {
+  if (ladderOn()) {
+    const L = S._ladder;
+    if (L && L.active) {
+      if (L.maxed) return true;
+      if (L.waitUntil && Date.now() < L.waitUntil) return true;
+    }
+    return false;
+  }
   if (S.position && S._batchHoldAt && S.lastPrice > 0) {
     const p = S.lastPrice, long = S.position.side === "long";
     const worst = S._batchWorst == null ? p : long ? Math.min(S._batchWorst, p) : Math.max(S._batchWorst, p);
@@ -3105,7 +3155,7 @@ function batchHoldActive() {
   }
   const __live = Math.max(0, Number(S._exEntryOpenN) || 0);
   const __filled = Math.max(0, Number(S._entryFillsN) || 0);
-  const STEP_WAITS = [3, 3, 5, 5];
+  const STEP_WAITS = [2, 3, 4, 4];
   const gIdx = Math.min(5, Math.max(1, Number(S._groupIdx) || 1));
   const base = Math.max(0, Number(S._groupFillBase) || 0);
   const inGroup = Math.max(0, (Number(S._entryFillsN) || 0) - base);
@@ -3130,7 +3180,7 @@ function batchHoldActive() {
   S._groupAnchor = Number(S._groupExtreme) > 0 ? Number(S._groupExtreme) : S.position ? S.position.entry : S.lastPrice;
   S._groupExtreme = 0;
   S._batchHoldAt = 0;
-  pushLog("server", "\u{1F4C8} \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + S._groupIdx + " (4 \u0623\u0648\u0627\u0645\u0631 \u0628\u062A\u0628\u0627\u0639\u062F " + [0.25, 0.35, 0.5, 0.65, 0.75][S._groupIdx - 1] + "%) \u0645\u0646 " + fmtPx(S._groupAnchor) + " \u2014 \u0623\u0639\u0644\u0649 \u0646\u0642\u0637\u0629 \u062E\u0644\u0627\u0644 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631");
+  pushLog("server", "\u{1F4C8} \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + S._groupIdx + " (4 \u0623\u0648\u0627\u0645\u0631 \u0628\u062A\u0628\u0627\u0639\u062F " + [0.3, 0.4, 0.5, 0.6, 0.7][S._groupIdx - 1] + "%) \u0645\u0646 " + fmtPx(S._groupAnchor) + " \u2014 \u0623\u0639\u0644\u0649 \u0646\u0642\u0637\u0629 \u062E\u0644\u0627\u0644 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631");
   try {
     const fresh = buildGrid(S._groupAnchor, false, effLevels()).filter((x) => !x.reduceOnly);
     const keep = S.grid.filter((l) => l.reduceOnly || l.status === "filled" || l.status === "open");
@@ -5958,7 +6008,7 @@ async function botTick() {
         if (filledAdds() > before) S.lastAddAt = Date.now();
       }
       const hunt = huntTrigger(price);
-      if (hunt && !S.permDenied && price > 0) {
+      if (hunt && !S.permDenied && price > 0 && !ladderOn()) {
         let done = false;
         if (S.config.mode === "live" && S.keys) {
           try {
@@ -6260,6 +6310,7 @@ function saveCfg(v) {
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
+  if (v.seqMode != null) S.config.seqMode = !!v.seqMode;
   S.sound = !!v.sound;
   if (v.soundTone) S.soundTone = v.soundTone;
   if (sym !== old) {
@@ -6385,6 +6436,21 @@ function initEngine() {
   } catch (e) {
     logSwallow("silent-catch", e);
   }
+  try {
+    startSilentKeepAlive();
+  } catch (e) {
+    logSwallow("keepalive", e);
+  }
+  try {
+    startForegroundSvc();
+  } catch (e) {
+    logSwallow("keepalive", e);
+  }
+  try {
+    startNativeKeepAlive();
+  } catch (e) {
+    logSwallow("keepalive", e);
+  }
   if (R()) {
     pushLog("info", "\u0648\u0636\u0639 \u0633\u064A\u0631\u0641\u0631 \u0627\u0644\u062C\u0648\u0627\u0644 \u2014 \u0627\u0644\u0645\u062D\u0631\u0643 \u064A\u0639\u0645\u0644 \u0641\u064A Termux \u0628\u0644\u0627 \u0646\u0648\u0645");
     remoteSync();
@@ -6447,9 +6513,6 @@ function initEngine() {
     scanRadar().catch(() => {
     });
   }, 45e3);
-  startSilentKeepAlive();
-  startForegroundSvc();
-  startNativeKeepAlive();
   logRevival();
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
@@ -6468,7 +6531,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.0";
+var SRV_VER = "AB-210-TRQ-1.1.1";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
