@@ -442,6 +442,16 @@ function resetLadder(reason) {
 }
 function placeGroup(g, anchor) {
   if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
+    const km = (S._multMap || {})[S.config.symbol] || 0;
+    const kt = (S._tickMap || {})[S.config.symbol] || 0;
+    if (km > 0) {
+      S.multiplier = km;
+      if (kt > 0) S.tickSize = kt;
+      S._metaSym = S.config.symbol;
+      pushLog("server", "[ladder] \u0645\u0648\u0627\u0635\u0641\u0627\u062A " + S.config.displaySymbol + " \u0645\u0646 \u0627\u0644\u0630\u0627\u0643\u0631\u0629: \u0645\u0636\u0627\u0639\u0641 " + km + " \u2014 \u0627\u0644\u062A\u0633\u0644\u064A\u062D \u064A\u0643\u0645\u0644");
+    }
+  }
+  if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
     if (!S._ladMetaAt || Date.now() - S._ladMetaAt > 6e4) {
       S._ladMetaAt = Date.now();
       pushLog("server", "[ladder] \u0627\u0646\u062A\u0638\u0627\u0631 \u062A\u0648\u062B\u064A\u0642 \u0645\u0648\u0627\u0635\u0641\u0627\u062A " + S.config.displaySymbol + " \u0642\u0628\u0644 \u062A\u0633\u0644\u064A\u062D \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + " \u2014 \u0644\u0627 \u0623\u062D\u062C\u0627\u0645 \u0628\u0645\u0636\u0627\u0639\u0641 \u063A\u064A\u0631 \u0645\u0648\u062B\u0642");
@@ -2415,6 +2425,21 @@ async function placeOrderSmart(body) {
     throw new Error(errs.join(" | "));
   }
 }
+function seedMetaFromMap() {
+  try {
+    const sym = S.config.symbol;
+    if (S._metaSym === sym && S.multiplier > 0) return false;
+    const km = (S._multMap || {})[sym] || 0, kt = (S._tickMap || {})[sym] || 0;
+    if (!(km > 0)) return false;
+    S.multiplier = km;
+    if (kt > 0) S.tickSize = kt;
+    S._metaSym = sym;
+    pushLog("server", "\u{1F4D0} \u0645\u0648\u0627\u0635\u0641\u0627\u062A " + S.config.displaySymbol + " \u0645\u0646 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0645\u062D\u0641\u0648\u0638\u0629: \u0645\u0636\u0627\u0639\u0641 \u0627\u0644\u0639\u0642\u062F " + km + " \u2014 \u0644\u0627 \u0627\u0646\u062A\u0638\u0627\u0631 \u062C\u0644\u0628 \u0645\u062A\u0639\u062B\u0631");
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 async function ensureLiveMeta(symbol2) {
   if (S._metaSym === symbol2 && S.multiplier > 0) return;
   try {
@@ -3460,6 +3485,7 @@ function capEntryQty(q, price) {
 }
 function levelQtys(center, n) {
   const c = S.config;
+  if (S._metaSym !== c.symbol || !(S.multiplier > 0)) seedMetaFromMap();
   if (S._metaSym !== c.symbol || !(S.multiplier > 0)) return [];
   const cv = Math.max(1e-12, S.multiplier * center);
   const lev = Math.max(1, c.leverage);
@@ -4680,6 +4706,7 @@ function packHunt(p) {
 }
 function huntTrigger(p) {
   if (S.status !== "running" || !p) return null;
+  if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) seedMetaFromMap();
   if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) return null;
   if (!warmedUp()) return null;
   const kick = priceKick();
@@ -6380,6 +6407,7 @@ function saveCfg(v) {
     S.tickSize = 0.1;
     S._metaSym = null;
     S.maxOrderQty = 0;
+    seedMetaFromMap();
     S.lastPrice = null;
     S.markPrice = null;
     S.lastTickAt = null;
@@ -6593,7 +6621,7 @@ function initEngine() {
   setTimeout(() => {
     scanRadar().catch(() => {
     });
-  }, 15e3);
+  }, 15e3 + ((Number(S._mySlot) || 1) - 1) * 7e3);
   setInterval(() => {
     scanRadar().catch(() => {
     });
@@ -6616,22 +6644,26 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.3";
+var SRV_VER = "AB-210-TRQ-1.1.4";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
 var maskedKeys = (k) => k && k.apiKey ? { apiKey: "\u2022\u2022\u2022\u2022" + String(k.apiKey).slice(-4) } : null;
 var TOK = String(typeof localStorage !== "undefined" && localStorage.getItem("abking:token") || "");
 var FLEET_TOK = String(process.env.ABKING_FLEET_TOKEN || "");
-var ALLOWED_ORIGINS = "https://localhost, http://localhost, capacitor://localhost";
+var ALLOWED_ORIGINS = ["https://localhost", "http://localhost", "capacitor://localhost", "ionic://localhost"];
+var originFor = (req) => {
+  const o = String(req.headers.origin || "");
+  return ALLOWED_ORIGINS.includes(o) ? o : "capacitor://localhost";
+};
 var cmdAuth = (req) => {
   const h = String(req.headers["x-trq-token"] || "");
   return !!h && (h === TOK || !!FLEET_TOK && h === FLEET_TOK);
 };
-function send(res, code, obj) {
+function send(res, code, obj, req) {
   res.writeHead(code, {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS,
+    "Access-Control-Allow-Origin": originFor(req || { headers: {} }),
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-TRQ-Token",
     "Cache-Control": "no-store"
@@ -6791,7 +6823,7 @@ var srv = createServer(async (req, res) => {
   try {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
-        "Access-Control-Allow-Origin": ALLOWED_ORIGINS,
+        "Access-Control-Allow-Origin": originFor(req),
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, X-TRQ-Token"
       });
@@ -6806,7 +6838,7 @@ var srv = createServer(async (req, res) => {
         fleet: FLEET_N,
         at: Date.now(),
         pid: process.pid
-      });
+      }, req);
     if (SLOT > 0) {
       if (req.method === "GET" && u.pathname === "/state") {
         const lp = S.lastPrice || 0, mult = S.multiplier || 1, taker = S.takerFee || 6e-4;
@@ -6825,10 +6857,10 @@ var srv = createServer(async (req, res) => {
           }),
           logs: (S.logs || []).slice(-80)
         };
-        return send(res, 200, { ok: true, at: Date.now(), state: st });
+        return send(res, 200, { ok: true, at: Date.now(), state: st }, req);
       }
       if (req.method === "POST" && u.pathname === "/cmd") {
-        if (!cmdAuth(req)) return send(res, 403, { ok: false, error: "unauthorized" });
+        if (!cmdAuth(req)) return send(res, 403, { ok: false, error: "unauthorized" }, req);
         let body = "";
         for await (const chunk of req) body += chunk;
         let j = {};
@@ -6840,66 +6872,66 @@ var srv = createServer(async (req, res) => {
         switch (a) {
           case "start":
             startBot();
-            return send(res, 200, { ok: true });
+            return send(res, 200, { ok: true }, req);
           case "pause":
             pauseBot();
-            return send(res, 200, { ok: true });
+            return send(res, 200, { ok: true }, req);
           case "stop":
             await stopBot();
-            return send(res, 200, { ok: true });
+            return send(res, 200, { ok: true }, req);
           case "newCycle":
             newCycle();
-            return send(res, 200, { ok: true });
+            return send(res, 200, { ok: true }, req);
           case "saveCfg":
             saveCfg(j.cfg || {});
-            return send(res, 200, { ok: true });
+            return send(res, 200, { ok: true }, req);
           case "saveKeys": {
             const ok = await saveKeys(j.keys || {});
-            return send(res, 200, { ok: !!ok, error: ok ? null : "\u0641\u0634\u0644 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0645\u0646\u0635\u0629 \u2014 \u062A\u062D\u0642\u0651\u0642 \u0645\u0646 \u0627\u0644\u0645\u0641\u0627\u062A\u064A\u062D" });
+            return send(res, 200, { ok: !!ok, error: ok ? null : "\u0641\u0634\u0644 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0645\u0646\u0635\u0629 \u2014 \u062A\u062D\u0642\u0651\u0642 \u0645\u0646 \u0627\u0644\u0645\u0641\u0627\u062A\u064A\u062D" }, req);
           }
           case "clearKeys":
             clearKeys();
-            return send(res, 200, { ok: true });
+            return send(res, 200, { ok: true }, req);
           case "scanRadar":
             await scanRadar();
-            return send(res, 200, { ok: true, radar: S.radar || null });
+            return send(res, 200, { ok: true, radar: S.radar || null }, req);
           case "repair": {
             const rr = await repairAccount();
-            return send(res, 200, rr);
+            return send(res, 200, rr, req);
           }
           case "alignStrategy": {
             const ch = alignStrategy(j.cfg || {});
-            return send(res, 200, { ok: true, changed: !!ch, fp: strategyFingerprint() });
+            return send(res, 200, { ok: true, changed: !!ch, fp: strategyFingerprint() }, req);
           }
           case "fingerprint":
-            return send(res, 200, { ok: true, fp: strategyFingerprint(), slot: SLOT });
+            return send(res, 200, { ok: true, fp: strategyFingerprint(), slot: SLOT }, req);
           case "gridStatus":
-            return send(res, 200, { ok: true, slot: SLOT, status: gridStatus() });
+            return send(res, 200, { ok: true, slot: SLOT, status: gridStatus() }, req);
           case "cancelEntries": {
             const rr = await cancelEntryOrders();
-            return send(res, 200, rr);
+            return send(res, 200, rr, req);
           }
           case "cleanStart": {
             const rr = await cleanStart();
-            return send(res, 200, rr);
+            return send(res, 200, rr, req);
           }
           case "enableEntries":
-            return send(res, 200, enableEntries());
+            return send(res, 200, enableEntries(), req);
           case "syncBooks":
-            return send(res, 200, syncBooks(j.totalEq, j.share));
+            return send(res, 200, syncBooks(j.totalEq, j.share), req);
           case "resetState":
-            return send(res, 200, resetState());
+            return send(res, 200, resetState(), req);
           case "fleetGate":
-            return send(res, 200, setFleetGate(j.opened, SLOT));
+            return send(res, 200, setFleetGate(j.opened, SLOT), req);
           case "ensureFour": {
             const need = ensureGroupFour();
-            return send(res, 200, { ok: true, need });
+            return send(res, 200, { ok: true, need }, req);
           }
           default:
-            return send(res, 400, { ok: false, error: "\u0625\u062C\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641: " + a });
+            return send(res, 400, { ok: false, error: "\u0625\u062C\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641: " + a }, req);
         }
       }
-      send(res, 404, { ok: false, error: "not found" });
+      send(res, 404, { ok: false, error: "not found" }, req);
       return;
     }
     if (req.method === "GET" && u.pathname === "/fleet") {
@@ -6910,16 +6942,16 @@ var srv = createServer(async (req, res) => {
         const st = slotStates[k];
         if (st && st.config && st.config.symbol) taken.push({ sym: st.config.symbol, holder: k });
       }
-      return send(res, 200, { ok: true, taken });
+      return send(res, 200, { ok: true, taken }, req);
     }
     if (req.method === "GET" && u.pathname === "/state") {
       const sel = parseInt(u.searchParams.get("sel") || "0", 10) || 0;
       const st = mergedState(sel);
-      if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: "idle", heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } });
-      return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: st });
+      if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: "idle", heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } }, req);
+      return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: st }, req);
     }
     if (req.method === "POST" && u.pathname === "/cmd") {
-      if (!cmdAuth(req)) return send(res, 403, { ok: false, error: "unauthorized" });
+      if (!cmdAuth(req)) return send(res, 403, { ok: false, error: "unauthorized" }, req);
       let body = "";
       for await (const chunk of req) body += chunk;
       let j = {};
@@ -6932,7 +6964,7 @@ var srv = createServer(async (req, res) => {
         const h = await jfetch("http://127.0.0.1:" + (BASE_PORT + 1) + "/cmd", 15e3, { action: "syncBooks", totalEq: j.totalEq, share: j.share });
         const eq = Number(j.totalEq) || 0, share = eq > 0 ? Math.round(eq / FLEET_N * 100) / 100 : 0;
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 15e3, { action: "syncBooks", totalEq: eq, share })));
-        return send(res, 200, { ok: true, equity: eq, share, results: rs });
+        return send(res, 200, { ok: true, equity: eq, share, results: rs }, req);
       }
       if (a === "stop" || a === "pause" || a === "start") {
         try {
@@ -6943,34 +6975,34 @@ var srv = createServer(async (req, res) => {
         const payload2 = { action: a };
         Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, payload2))).catch(() => {
         });
-        return send(res, 200, { ok: true, instant: true, halted: a !== "start" });
+        return send(res, 200, { ok: true, instant: true, halted: a !== "start" }, req);
       }
-      if (a === "haltState") return send(res, 200, { ok: true, halted: haltRequested() });
+      if (a === "haltState") return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === "resetAll") {
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 3e4, { action: "resetState" })));
-        return send(res, 200, { ok: true, results: rs });
+        return send(res, 200, { ok: true, results: rs }, req);
       }
       if (a === "enableAll") {
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "enableEntries" })));
-        return send(res, 200, { ok: true, results: rs });
+        return send(res, 200, { ok: true, results: rs }, req);
       }
       if (a === "cleanAll") {
         const first = await jfetch("http://127.0.0.1:" + (BASE_PORT + 1) + "/cmd", 6e4, { action: "cleanStart" });
         const rest = await Promise.all(Array.from({ length: Math.max(0, FLEET_N - 1) }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 2 + i) + "/cmd", 3e4, { action: "cleanStart" })));
-        return send(res, 200, { ok: true, first, rest });
+        return send(res, 200, { ok: true, first, rest }, req);
       }
       if (a === "stabilize") {
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 15e3, { action: "cancelEntries" })));
-        return send(res, 200, { ok: true, results: rs });
+        return send(res, 200, { ok: true, results: rs }, req);
       }
       if (a === "alignFleet") {
         const base = j.cfg || {};
         const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "alignStrategy", cfg: base })));
-        return send(res, 200, { ok: true, applied: rs.map((r) => !!(r && r.ok)) });
+        return send(res, 200, { ok: true, applied: rs.map((r) => !!(r && r.ok)) }, req);
       }
       if (a === "repair") {
         const r1 = await jfetch("http://127.0.0.1:" + (BASE_PORT + 1) + "/cmd", 45e3, j);
-        return send(res, 200, r1 || { ok: false, error: "\u0644\u0645 \u064A\u0631\u062F \u0627\u0644\u0645\u062D\u0631\u0643" });
+        return send(res, 200, r1 || { ok: false, error: "\u0644\u0645 \u064A\u0631\u062F \u0627\u0644\u0645\u062D\u0631\u0643" }, req);
       }
       let payload = j;
       if (a === "saveCfg" && j.cfg) {
@@ -6984,13 +7016,13 @@ var srv = createServer(async (req, res) => {
       const ok = results.some((r) => r && r.ok);
       if (a === "scanRadar") {
         const st = mergedState();
-        return send(res, 200, { ok: true, radar: st ? st.radar || null : null });
+        return send(res, 200, { ok: true, radar: st ? st.radar || null : null }, req);
       }
-      return send(res, 200, { ok, fleet: results.map((r) => !!(r && r.ok)) });
+      return send(res, 200, { ok, fleet: results.map((r) => !!(r && r.ok)) }, req);
     }
-    send(res, 404, { ok: false, error: "not found" });
+    send(res, 404, { ok: false, error: "not found" }, req);
   } catch (e) {
-    send(res, 500, { ok: false, error: String(e && e.message || e) });
+    send(res, 500, { ok: false, error: String(e && e.message || e) }, req);
   }
 });
 srv.listen(PORT, "127.0.0.1", () => {
