@@ -51,3 +51,5 @@ nohup node ~/trg-server.mjs > ~/trg-server.log 2>&1 &
 ## رابط تحميل الملفات
 
 https://github.com/abab92100-cloud/TRQ-NEW/releases
+
+<!-- build-verification 2026-11-05: signature stability check -->
