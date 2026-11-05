@@ -22,10 +22,18 @@ if ! command -v node >/dev/null 2>&1; then
   echo "• تثبيت Node.js..."
   pkg install nodejs -y
 fi
-NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  echo "✗ إصدار Node قديم جدًا ($(node -v)) — السيرفر يتطلب 18 أو أحدث"
-  echo "  نفّذ: pkg upgrade -y && pkg install nodejs -y ثم أعد المحاولة"
+NODE_MAJOR=$(node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/')
+if [ "${NODE_MAJOR:-0}" -lt 18 ]; then
+  # درس الجوال: Node قديم (مثل v16.3.1) كان يوقف السكربت بالكامل — الآن نرقّيه تلقائيًا
+  echo "• إصدار Node قديم ($(node -v 2>/dev/null || echo 'غير مثبت')) — ترقية تلقائية إلى 18+..."
+  pkg upgrade -y || true
+  pkg install nodejs -y || true
+  hash -r 2>/dev/null || true
+  NODE_MAJOR=$(node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/')
+fi
+if [ "${NODE_MAJOR:-0}" -lt 18 ]; then
+  echo "✗ تعذّرت الترقية التلقائية لـ Node ($(node -v 2>/dev/null || echo 'غير مثبت')) — نفّذ يدويًا ثم أعد المحاولة:"
+  echo "  pkg upgrade -y && pkg install nodejs -y"
   exit 1
 fi
 echo "✓ Node $(node -v)"
