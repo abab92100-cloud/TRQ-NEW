@@ -2,7 +2,9 @@
 # ================================================================
 # AB-210-TRQ — تشخيص شامل v3: تقرير + إصلاح تلقائي + إرسال التقرير للمطور
 # ================================================================
-R=/tmp/trg-report.txt
+# درس الجوال: /tmp غير متاح في Termux — نكتب في $HOME (مضمون) ثم في $PREFIX/tmp كاحتياط
+R="$HOME/trg-report.txt"
+: > "$R" 2>/dev/null || R="$PREFIX/tmp/trg-report.txt"
 : > "$R"
 log() { echo "$@"; echo "$@" >> "$R"; }
 
@@ -117,7 +119,7 @@ fi
 
 log ""
 log "── عمليات node النشطة ──"
-ps -ef 2>/dev/null | grep -a "trg-server\|node" | grep -av grep >> "$R" || log "(لا عمليات)"
+{ pgrep -af "trg-server|node" 2>/dev/null || ps -ef 2>/dev/null | grep -a "trg-server\|node" | grep -av grep; } >> "$R" || log "(لا عمليات)"
 log ""
 log "══════ نهاية التقرير ══════"
 
@@ -127,11 +129,16 @@ sed -i -E 's/.*([Tt]oken|apiKey|api_key|secret|password).*/[سطر محجوب ل
 URL=$(curl -s -m 20 --data-urlencode "content@$(echo $R)" --data "lexer=_text&format=url&expires=604800" https://dpaste.org/api/ 2>/dev/null | tr -d '\r\n')
 echo ""
 if [ -n "$URL" ] && echo "$URL" | grep -qa "https://"; then
-  echo "═════════════════════════════════════"
-  echo "تم إرسال التقرير الكامل للمطور ✓"
-  echo "أرسل هذا الرابط في المحادثة:"
-  echo "$URL"
-  echo "═════════════════════════════════════"
+  # تحقق ذاتي: هل الرابط يرجع التقرير فعلًا؟
+  if curl -s -m 10 "$URL/raw" 2>/dev/null | grep -qa "تقرير تشخيص AB-210-TRQ"; then
+    echo "═════════════════════════════════════"
+    echo "تم إرسال التقرير الكامل للمطور وتأكده ✓"
+    echo "انسخ هذا الرابط وأرسله في المحادثة:"
+    echo "$URL"
+    echo "═════════════════════════════════════"
+  else
+    echo "! فشل التحقق من الرابط — نفّذ الأمر مرة أخرى أو صوّر الشاشة"
+  fi
 else
   echo "تعذّر إرسال التقرير تلقائيًا — صوّر الشاشة كاملة وأرسلها"
 fi
