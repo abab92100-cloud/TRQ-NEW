@@ -1,14 +1,14 @@
 /* ================================================================
-   KING-trading — سيرفر الجوال (Termux) Boeing Motorworks
-   · المنسّق (بلا ABKING_SLOT): يشغّل 5 محركات مستقلة، كل عميلة بمحركها
-     رأس الأسطول ÷ 5 تداولات، كل محرك يجلب cierre و DINستقل — يبدؤون桃
-   · المحرك (ABKING_SLOT=1..5): نفس المحرك على منفذ خاص به أثناء التشغيل:
-     node trg-server.mjs   (المنسّق fest أ启动ة 5 محركات تلقائيًا)
+   AB-210-TRQ — سيرفر الأسطول للجوال (Termux)
+   · المنسّق (بلا ABKING_SLOT): يُطلق 5 محركات مستقلة، كل عملية بمحركها
+   · المحرك (ABKING_SLOT=1..5): نفس الملف على منفذ خاص به أثناء التشغيل:
+     node trg-server.mjs   (المنسّق يُطلق 5 محركات تلقائيًا)
    الأمان:
    · /cmd تتطلب ترويسة X-TRQ-Token (توكن لكل تثبيت في ~/.ab-king بصلاحيات 0600)
-   · /state لا ترجع مفاتيح KuCoin (مقنّعة **** + آخر 4) — CORS مقيّد لأصل التطبيق
-   ================================================================ */
-import './server-shims'; // أولاً دائمًا: يثبّت بيئة localStorage قبل تحميل المحرك
+   · المنسّق يمرر توكن الأسطول للمحركات عبر ABKING_FLEET_TOKEN
+   · /state لا ترجع مفاتيح KuCoin (مقنّعة •••• + آخر 4) — CORS مقيّد لأصل التطبيق
+   · السيرفر يستمع على 127.0.0.1 فقط (لا وصول خارجي)
+   ================================================================ */mport './server-shims'; // أولاً دائمًا: يثبّت بيئة localStorage قبل تحميل المحرك
 import {
   S, initEngine, startBot, pauseBot, stopBot, newCycle,
   saveCfg, saveKeys, clearKeys, scanRadar, pushLog, liveSync, repairAccount,
@@ -16,7 +16,7 @@ import {
   requestHalt, clearHalt, haltRequested, setFleetGate, resetState,
 } from './engine';
 
-const SRV_VER = 'KING-trading-1.0.0';
+const SRV_VER = 'AB-210-TRQ-1.1.0';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -26,8 +26,13 @@ import { spawn } from 'node:child_process';
 
 const maskedKeys = (k: any) => (k && k.apiKey ? { apiKey: '••••' + String(k.apiKey).slice(-4) } : null);
 const TOK = String((typeof localStorage !== 'undefined' && localStorage.getItem('abking:token')) || '');
+// توكن الأسطول: يمرره المنسّق للمحركات عند إطلاقها حتى تقبل أوامره (كانت تُرفض 403 قبلاً)
+const FLEET_TOK = String((process.env as any).ABKING_FLEET_TOKEN || '');
 const ALLOWED_ORIGINS = 'https://localhost, http://localhost, capacitor://localhost';
-const cmdAuth = (req: any) => !!TOK && req.headers['x-trq-token'] === TOK;
+const cmdAuth = (req: any) => {
+  const h = String(req.headers['x-trq-token'] || '');
+  return !!h && (h === TOK || (!!FLEET_TOK && h === FLEET_TOK));
+};
 
 function send(res, code, obj) {
   res.writeHead(code, {
@@ -42,7 +47,7 @@ function send(res, code, obj) {
 async function jfetch(url, ms = 2500, payload?) {
   const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
   try {
-    const r = await fetch(url, payload ? { method: 'POST', signal: c.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) } : { signal: c.signal });
+    const r = await fetch(url, payload ? { method: 'POST', signal: c.signal, headers: { 'Content-Type': 'application/json', 'X-TRQ-Token': String(FLEET_TOK || TOK || '') }, body: JSON.stringify(payload) } : { signal: c.signal });
     clearTimeout(t); return await r.json();
   } catch { clearTimeout(t); return null; }
 }
@@ -51,7 +56,7 @@ const PORT = BASE_PORT + SLOT;
 
 /* وضع المحرك (قطاعي من الأسطول) */
 if (SLOT > 0) {
-  pushLog('server', '✅ ' + SRV_VER + ' — محرك الأسطول رقم ' + SLOT + '/' + FLEET_N + ' — Owner من رأس الأسطول ÷' + FLEET_N + ' تداولات — يبدأ geduldig mecanismoها');
+  pushLog('server', '✅ ' + SRV_VER + ' — محرك الأسطول رقم ' + SLOT + '/' + FLEET_N + ' — حصته رأس الأسطول ÷' + FLEET_N + ' تداولات — يبدأ العمل');
   let bootPickDone = false;
   const fleetSync = () => jfetch('http://127.0.0.1:' + BASE_PORT + '/fleet?i=' + SLOT).then(f => {
     if (f && Array.isArray(f.taken)) {
@@ -65,7 +70,7 @@ if (SLOT > 0) {
             const cand = (S.radar && Array.isArray(S.radar.list) ? S.radar.list : [])
               .find((x: any) => x && x.symbol && !takenSet.has(x.symbol) && x.symbol !== S.config.symbol);
             if (cand) {
-              pushLog('server', '⚖️ تkar على ' + S.config.displaySymbol + ' مع المحرك ' + winner + ' — ينتقل هذا المحرك إلى ' + (cand.disp || cand.symbol));
+              pushLog('server', '⚖️ تعارض على ' + S.config.displaySymbol + ' مع المحرك ' + winner + ' — ينتقل هذا المحرك إلى ' + (cand.disp || cand.symbol));
               try { saveCfg({ symbol: cand.symbol, leverage: S.config.leverage, levels: S.config.levels,
                 gridStepPct: S.config.gridStepPct, huntPct: S.config.huntPct, tpUsd: S.config.tpUsd,
                 cycleBalance: S.config.cycleBalance, directionMode: S.config.directionMode, mode: S.config.mode }); } catch {}
@@ -77,7 +82,7 @@ if (SLOT > 0) {
       const clash = f.taken.find((t: any) => t.sym === S.config.symbol);
       if (clash && clash.holder < SLOT && !S.position) {
         S._harvestAt = Date.now(); S._reselectDone = false;
-        pushLog('server', '🚦 تنبيه الأسطول: عملة ' + clash.holder + ' — ينتظر لdicentries بديلة');
+        pushLog('server', '🚦 تنبيه الأسطول: العملة مشغولة بمحرك ' + clash.holder + ' — ينتظر عملات بديلة');
       }
     }
   }).catch(() => {});
@@ -85,7 +90,7 @@ if (SLOT > 0) {
   setInterval(fleetSync, 10000).unref?.();
 
   setTimeout(() => {
-    liveSync().then(() => pushLog('server', '🔧 اكتمل reviewer репозиторий عند إغلاق المحرك ' + SLOT + ' — متطابق مع المنصة')).catch(() => {});
+    liveSync().then(() => pushLog('server', '🔧 اكتملت مزامنة الحساب عند إغلاق المحرك ' + SLOT + ' — متطابق مع المنصة')).catch(() => {});
     scanRadar().catch(() => {});
   }, 1500 + SLOT * 300);
 }
@@ -109,7 +114,7 @@ const alignFleetStrategy = async () => {
   for (let i = 1; i <= FLEET_N; i++) {
     const st = slotStates[i]; if (!st || !st.config) continue;
     const diff = STRAT_FIELDS.some(f => base[f] != null && st.config[f] !== base[f]);
-    if (diff) { try { await jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, { action: 'alignStrategy', cfg: base }); } catch { } }
+    if (diff) { try { await jfetch('http://127.0.0.1:' + (BASE_PORT + i) + '/cmd', 8000, { action: 'alignStrategy', cfg: base }); } catch { } }
   }
 };
 setInterval(() => { alignFleetStrategy().catch(() => { }); }, 300000).unref?.();
@@ -171,7 +176,7 @@ const srv = createServer(async (req, res) => {
     const u = new URL(req.url || '/', 'http://127.0.0.1');
 
     if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/health'))
-      return send(res, 200, { ok: true, name: 'KING-trading Fleet Server', version: SRV_VER, fleet: FLEET_N,
+      return send(res, 200, { ok: true, name: 'AB-210-TRQ Fleet Server', version: SRV_VER, fleet: FLEET_N,
         at: Date.now(), pid: (process as any).pid });
 
     if (SLOT > 0) {
@@ -321,20 +326,21 @@ const srv = createServer(async (req, res) => {
 
 srv.listen(PORT, '127.0.0.1', () => {
   if (SLOT > 0) {
-    console.log('[KING] محرك الأسطول ' + SLOT + ' يعمل على http://127.0.0.1:' + PORT);
+    console.log('[AB-210-TRQ] محرك الأسطول ' + SLOT + ' يعمل على http://127.0.0.1:' + PORT);
   } else {
-    console.log('[KING] منسّق الأسطول يعمل على http://127.0.0.1:' + PORT + ' — يُطلق ' + FLEET_N + ' محركات');
-    pushLog('server', '🚀 انطلق KING-trading — ' + FLEET_N + ' محركات مستقلة، رأس الأسطول ÷ ' + FLEET_N + ' تداولات، كل عميلة بمحركها');
+    console.log('[AB-210-TRQ] منسّق الأسطول يعمل على http://127.0.0.1:' + PORT + ' — يُطلق ' + FLEET_N + ' محركات');
+    pushLog('server', '🚀 انطلق AB-210-TRQ — ' + FLEET_N + ' محركات مستقلة، رأس الأسطول ÷ ' + FLEET_N + ' تداولات، كل عملية بمحركها');
     const self = process.argv[1];
     for (let i = 1; i <= FLEET_N; i++) {
+      const engineEnv = (n: number) => ({ ...process.env, ABKING_SLOT: String(n), ABKING_FLEET_TOKEN: TOK });
       const child = spawn(process.execPath, [self], {
-        env: { ...process.env, ABKING_SLOT: String(i) },
+        env: engineEnv(i),
         stdio: ['ignore', 'inherit', 'inherit'],
         detached: false,
       });
       child.on('exit', (code) => {
-        console.log('[KING] محرك ' + i + ' خرج (' + code + ') — إعادة تشغيل خلال 5 ث');
-        setTimeout(() => { try { spawn(process.execPath, [self], { env: { ...process.env, ABKING_SLOT: String(i) }, stdio: ['ignore', 'inherit', 'inherit'], detached: false }); } catch{} }, 5000);
+        console.log('[AB-210-TRQ] محرك ' + i + ' خرج (' + code + ') — إعادة تشغيل خلال 5 ث');
+        setTimeout(() => { try { spawn(process.execPath, [self], { env: engineEnv(i), stdio: ['ignore', 'inherit', 'inherit'], detached: false }); } catch{} }, 5000);
       });
     }
     setTimeout(pollSlots, 4000);
@@ -350,4 +356,4 @@ srv.listen(PORT, '127.0.0.1', () => {
 });
 
 initEngine();
-if (SLOT === 0) console.log('[KING] المنسّق جاهز — شغّل التطبيق في الجوال (يكتشف السيرفر تلقائيًا)');
+if (SLOT === 0) console.log('[AB-210-TRQ] المنسّق جاهز — شغّل التطبيق في الجوال (يكتشف السيرفر تلقائيًا)');

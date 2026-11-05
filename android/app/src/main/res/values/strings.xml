@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">TRQ-NEW</string>
-    <string name="title_activity_main">TRQ-NEW</string>
+    <string name="app_name">AB-210-TRQ</string>
+    <string name="title_activity_main">AB-210-TRQ</string>
     <string name="package_name">com.abking.trading</string>
     <string name="custom_url_scheme">com.abking.trading</string>
 </resources>

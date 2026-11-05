@@ -1,4 +1,4 @@
-(window as any).__FLEET_POLL_SLOW = true; // أcheiden: مزامنة الأسطول كل 2.5 ثاd ada hiddenload
+(window as any).__FLEET_POLL_SLOW = true; // مزامنة الأسطول كل 2.5 ثانية (توفير بطارية)
 import { useEffect, useState } from 'react';
 import {
   S, subscribe, initEngine, remoteSync, detectRemoteServer, startBot, pauseBot, stopBot, newCycle,
@@ -466,8 +466,8 @@ export default function App() {
   return (
     <div>
       <header>
-        <div className="logo">K</div>
-        <div className="t"><b>KING</b><span>trading</span></div>
+        <div className="logo">AB</div>
+        <div className="t"><b>AB-210</b><span>TRQ</span></div>
         <span className={'pill ' + (streamState.connected ? 'on' : 'dn-pill')} title="حالة قناة السعر اللحظي">
           <i></i>{streamState.connected ? 'متصل' : 'مقطوع'} · {pulseAge()}
         </span>
@@ -483,7 +483,7 @@ export default function App() {
       </header>
       {Array.isArray((S as any).fleet) && (S as any).fleet.length > 0 && (
         <div className="fleet-strip" style={{ display:'flex', gap:6, overflowX:'auto', padding:'6px 10px', fontSize:12, alignItems:'center' }}>
-          <span className="pill" title="عرض مدمج: أول محرك بم diap —ila على الشريط لعرض عم engine отдельно"
+          <span className="pill" title="عرض مدمج لكل المحركات — اضغط على أي محرك في الشريط لعرضه منفردًا"
             onClick={() => { (window as any).__FLEET_SEL = 0; remoteSync().catch(() => {}); }}
             style={{ flex:'0 0 auto', whiteSpace:'nowrap', cursor:'pointer', opacity: sel ? 0.55 : 1 }}>
             الأسطول

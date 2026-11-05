@@ -1,4 +1,4 @@
-name: Build TRQ-NEW APK + server
+name: Build AB-210-TRQ APK + server
 
 on:
   push:
@@ -25,9 +25,7 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick curl patch >/dev/null 2>&1 || true
           curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar \
             "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
-          curl -fsSL -o /tmp/icon-master.png \
-            "https://raw.githubusercontent.com/abab92100-cloud/KING-210/a84b2b11eda1487fb7b3f20e1a55bdce7efdb466/assets/trg-app-icon.png" \
-            || convert -size 1024x1024 xc:'#0a0e14' \
+          node tools/make-icon.mjs /tmp/icon-master.png || convert -size 1024x1024 xc:'#0a0e14' \
               -fill none -stroke '#f5c518' -strokewidth 30 -draw 'circle 512,512 512,170' \
               -fill '#f5c518' -stroke none -draw 'rectangle 382,400 642,455' -draw 'rectangle 487,400 537,665' \
               /tmp/icon-master.png
@@ -88,25 +86,25 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../releases
-          ls app/build/outputs/apk/release/ && cp app/build/outputs/apk/release/*.apk ../releases/TRQ-NEW-latest.apk
+          ls app/build/outputs/apk/release/ && cp app/build/outputs/apk/release/*.apk ../releases/AB-210-TRQ-latest.apk
           cp ../server-dist/ab-king-server.mjs ../releases/trg-server.mjs
       - name: Commit build artifacts back to releases/
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add -f releases/TRQ-NEW-latest.apk releases/trg-server.mjs
-          git commit -m "ci: update TRQ-NEW-latest.apk + trg-server.mjs [skip ci]" || echo "nothing to commit"
+          git add -f releases/AB-210-TRQ-latest.apk releases/trg-server.mjs
+          git commit -m "ci: update AB-210-TRQ-latest.apk + trg-server.mjs [skip ci]" || echo "nothing to commit"
           git push
       - name: Publish GitHub Release (latest) for direct mobile download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.0.0 releases/TRQ-NEW-latest.apk releases/trg-server.mjs --title "TRQ-NEW v1.0.0" --notes "TRQ-NEW app (5 fleets) + fleet server" --latest 2>/dev/null || \
-            gh release upload v1.0.0 releases/TRQ-NEW-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.0 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.0" --notes "AB-210-TRQ app (5 fleets) + fleet server — rebrand + fleet-token fix" --latest 2>/dev/null || \
+            gh release upload v1.1.0 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: trq-new-artifacts
           path: |
-            releases/TRQ-NEW-latest.apk
+            releases/AB-210-TRQ-latest.apk
             releases/trg-server.mjs

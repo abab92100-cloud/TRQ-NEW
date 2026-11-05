@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.trg.new',
-  appName: 'TRQ-NEW',
+  appName: 'AB-210-TRQ',
   webDir: 'dist',
   backgroundColor: '#0a0e14',
   plugins: {
