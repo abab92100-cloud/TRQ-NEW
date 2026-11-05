@@ -8,7 +8,8 @@
    · المنسّق يمرر توكن الأسطول للمحركات عبر ABKING_FLEET_TOKEN
    · /state لا ترجع مفاتيح KuCoin (مقنّعة •••• + آخر 4) — CORS مقيّد لأصل التطبيق
    · السيرفر يستمع على 127.0.0.1 فقط (لا وصول خارجي)
-   ================================================================ */mport './server-shims'; // أولاً دائمًا: يثبّت بيئة localStorage قبل تحميل المحرك
+   ================================================================ */
+import './server-shims'; // أولاً دائمًا: يثبّت بيئة localStorage قبل تحميل المحرك
 import {
   S, initEngine, startBot, pauseBot, stopBot, newCycle,
   saveCfg, saveKeys, clearKeys, scanRadar, pushLog, liveSync, repairAccount,

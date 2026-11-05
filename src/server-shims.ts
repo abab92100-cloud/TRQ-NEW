@@ -35,4 +35,4 @@ if (!data['abking:token']) { data['abking:token'] = randomBytes(24).toString('he
   clear: () => { data = {}; persist(); },
 };
 
-console.log('[KING-trading] store: ' + file);
+console.log('[AB-210-TRQ] store: ' + file);
