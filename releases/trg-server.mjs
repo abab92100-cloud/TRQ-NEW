@@ -6531,7 +6531,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.1";
+var SRV_VER = "AB-210-TRQ-1.1.2";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
