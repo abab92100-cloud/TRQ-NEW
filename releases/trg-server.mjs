@@ -441,6 +441,20 @@ function resetLadder(reason) {
   if (reason) pushLog("server", "[ladder] " + reason);
 }
 function placeGroup(g, anchor) {
+  if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
+    if (!S._ladMetaAt || Date.now() - S._ladMetaAt > 6e4) {
+      S._ladMetaAt = Date.now();
+      pushLog("server", "[ladder] \u0627\u0646\u062A\u0638\u0627\u0631 \u062A\u0648\u062B\u064A\u0642 \u0645\u0648\u0627\u0635\u0641\u0627\u062A " + S.config.displaySymbol + " \u0642\u0628\u0644 \u062A\u0633\u0644\u064A\u062D \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + " \u2014 \u0644\u0627 \u0623\u062D\u062C\u0627\u0645 \u0628\u0645\u0636\u0627\u0639\u0641 \u063A\u064A\u0631 \u0645\u0648\u062B\u0642");
+    }
+    return;
+  }
+  if (S.lastPrice > 0 && anchor > 0) {
+    const r = Math.max(anchor / S.lastPrice, S.lastPrice / anchor);
+    if (r > 5) {
+      pushLog("server", "[ladder] \u26D4 \u0645\u0631\u0633\u0627\u0629 \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + " (" + fmtPx(anchor) + ") \u062A\u0628\u0639\u062F " + r.toFixed(0) + "\xD7 \u0639\u0646 \u0633\u0639\u0631 " + S.config.displaySymbol + " \u2014 \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u0644\u0648\u0651\u062B\u0629\u060C \u064A\u064F\u0631\u0641\u0636 \u0627\u0644\u062A\u0633\u0644\u064A\u062D");
+      return;
+    }
+  }
   const short = ladderShort();
   const side = short ? "sell" : "buy";
   const sp = SPACINGS[Math.min(g, SPACINGS.length - 1)] / 100;
@@ -499,6 +513,16 @@ function ladderTick(price) {
     return;
   }
   const cur = groupOrders(stNow.group);
+  if (!S.position && cur.length && cur.every((l) => l.status === "cancelled") && !cur.some((l) => l.filledAt)) {
+    if (!S._ladReArmAt || Date.now() - S._ladReArmAt > 3e4) {
+      S._ladReArmAt = Date.now();
+      pushLog("server", "[ladder] \u0623\u064F\u0644\u063A\u064A\u062A \u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (stNow.group + 1) + " \u0643\u0627\u0645\u0644\u0629 (\u0627\u0646\u0642\u0644\u0627\u0628/\u0641\u064A\u062A\u0648) \u2014 \u064A\u064F\u0639\u0627\u062F \u062A\u0633\u0644\u064A\u062D\u0647\u0627 \u0645\u0646 " + fmtPx(price));
+      placeGroup(stNow.group, price);
+      emit();
+      return;
+    }
+    return;
+  }
   if (cur.length < GROUP_SIZE) return;
   const filled = cur.filter((l) => l.status === "filled" || l.filledAt).length;
   if (filled < GROUP_SIZE) return;
@@ -5949,6 +5973,11 @@ async function botTick() {
       saveAll();
       return;
     }
+    try {
+      purgeContaminatedPaper("\u0627\u0644\u0646\u0628\u0636\u0629");
+    } catch (e) {
+      logSwallow("purge", e);
+    }
     S.heartbeat++;
     applyMeta(m);
     studyTick();
@@ -6346,6 +6375,7 @@ function saveCfg(v) {
     S.priceTrail = [];
     S.emaFast = S.emaSlow = null;
     S._metaAt = 0;
+    S._ladder = null;
     S.multiplier = 1;
     S.tickSize = 0.1;
     S._metaSym = null;
@@ -6422,6 +6452,60 @@ function saveCfg(v) {
   toast("\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0627\u062A");
 }
 var booted = false;
+function purgeContaminatedPaper(reasonTag) {
+  try {
+    if (S.config.mode === "live" || !S.position) return false;
+    const pos = S.position;
+    const val = Math.abs((pos.size || 0) * (S.multiplier || 1) * (pos.entry || 0));
+    const bal = Math.max(50, Number(S.config.cycleBalance) || 50);
+    const capVal = bal * Math.max(3, Number(S.config.leverage) || 3) * 3;
+    let bad = val > capVal;
+    let ratioWhy = "";
+    if (!bad && pos.entry > 0 && S.lastPrice > 0) {
+      const r = Math.max(pos.entry / S.lastPrice, S.lastPrice / pos.entry);
+      if (r > 10) {
+        bad = true;
+        ratioWhy = " (\u0633\u0639\u0631 \u0627\u0644\u062F\u062E\u0648\u0644 \u064A\u0628\u0639\u062F " + r.toFixed(0) + "\xD7 \u0639\u0646 \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u062D\u0627\u0644\u064A)";
+      }
+    }
+    if (!bad) return false;
+    const n = (S.journal || []).filter((j) => j.status === "open").length;
+    S.position = null;
+    S.grid = [];
+    S._ladder = null;
+    S.activeCycle = null;
+    S.journal = (S.journal || []).filter((j) => j.status !== "open");
+    try {
+      S.feesPaid = (S.journal || []).reduce((a, j) => a + (Number(j.fees) || 0), 0);
+      S.fundingPaid = 0;
+    } catch (e) {
+    }
+    pushLog("server", "\u{1F9FC} \u062A\u0637\u0647\u064A\u0631 " + reasonTag + ": \u0645\u0631\u0643\u0632 \u0648\u0631\u0642\u064A \u0645\u0644\u0648\u0651\u062B (\u062F\u062E\u0648\u0644 " + fmtPx(pos.entry) + " \xB7 \u0642\u064A\u0645\u0629 " + fmtUsd(val) + "$" + ratioWhy + ") \u2014 \u062D\u064F\u0630\u0641 \u0645\u0639 " + n + " \u0635\u0641\u0642\u0629 \u0645\u0641\u062A\u0648\u062D\u0629 \u062A\u0627\u0628\u0639\u0629 \u0644\u0647 \u2014 \u0628\u062F\u0627\u064A\u0629 \u0646\u0638\u064A\u0641\u0629");
+    saveAll();
+    emit();
+    return true;
+  } catch (e) {
+    logSwallow("purge", e);
+    return false;
+  }
+}
+async function purgeOnBoot() {
+  try {
+    if (S.config.mode === "live" || !S.position) return;
+    const pos = S.position;
+    if (purgeContaminatedPaper("\u0627\u0644\u0625\u0642\u0644\u0627\u0639")) return;
+    if (pos.entry > 0) {
+      try {
+        const t = await fetchTicker(S.config.symbol);
+        const px = +t.price || 0;
+        if (px > 0 && (pos.entry / px > 10 || px / pos.entry > 10)) purgeContaminatedPaper("\u0627\u0644\u0625\u0642\u0644\u0627\u0639");
+      } catch (e) {
+      }
+    }
+  } catch (e) {
+    logSwallow("purge", e);
+  }
+}
 function initEngine() {
   if (booted) return;
   booted = true;
@@ -6482,6 +6566,7 @@ function initEngine() {
     }
   }, 5e3);
   loadAll();
+  purgeOnBoot();
   if (S.config.symbol === "BTCUSDTM") S.config.symbol = "XBTUSDTM";
   S.config.displaySymbol = S.config.symbol.replace(/USDTM$/i, "").replace(/^XBT$/i, "BTC");
   pushLog("info", "AB-KING \u062C\u0627\u0647\u0632 \u2014 " + (S.config.mode === "live" ? "\u0648\u0636\u0639 LIVE" : "\u0648\u0636\u0639 \u0648\u0631\u0642\u064A"));
@@ -6531,7 +6616,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.2";
+var SRV_VER = "AB-210-TRQ-1.1.3";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -6943,5 +7028,5 @@ srv.listen(PORT, "127.0.0.1", () => {
     }, 30 * 60 * 1e3).unref?.();
   }
 });
-initEngine();
-if (SLOT === 0) console.log("[AB-210-TRQ] \u0627\u0644\u0645\u0646\u0633\u0651\u0642 \u062C\u0627\u0647\u0632 \u2014 \u0634\u063A\u0651\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0641\u064A \u0627\u0644\u062C\u0648\u0627\u0644 (\u064A\u0643\u062A\u0634\u0641 \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627)");
+if (SLOT === 0) console.log("[AB-210-TRQ] \u0627\u0644\u0645\u0646\u0633\u0651\u0642 \u062C\u0627\u0647\u0632 \u2014 \u0634\u063A\u0651\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0641\u064A \u0627\u0644\u062C\u0648\u0627\u0644 (\u064A\u0643\u062A\u0634\u0641 \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627) \u2014 \u0644\u0627 \u0645\u062D\u0631\u0643 \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0633\u0651\u0642");
+else initEngine();
