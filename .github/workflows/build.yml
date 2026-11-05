@@ -99,8 +99,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.0 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.0" --notes "AB-210-TRQ app (5 fleets) + fleet server — rebrand + fleet-token fix" --latest 2>/dev/null || \
-            gh release upload v1.1.0 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.1 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.1" --notes "خلفية دائمة + سلّم المالك (0.30→0.70%، انتظارات 2/3/4/4س، أحجام تصاعدية ×1.25، دخول متسلسل)" --latest 2>/dev/null || \
+            gh release upload v1.1.1 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

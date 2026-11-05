@@ -22,7 +22,7 @@ declare global {
 function useEngine() {
   const [, setN] = useState(0);
   useEffect(() => {
-    // Jersey سيرفر Termux أولاً: إن وُجد يعمل المحرك هناك ونصبح واجهة — بلا محرك محلي double
+    // جسّ سيرفر Termux أولاً: إن وُجد يعمل المحرك هناك ونصبح واجهة — بلا محرك محلي مزدوج
     (async () => { await detectRemoteServer().catch(() => false); initEngine(); })();
     const un:any = subscribe(() => setN(n => n + 1));
     return () => { if (typeof un === 'function') un(); };
@@ -103,7 +103,7 @@ function WsBar() {
     <div>
     {netDown && (
       <div style={{ background:'rgba(244,63,94,.15)', border:'1px solid rgba(244,63,94,.5)', borderRadius:10, padding:'8px 12px', marginBottom:6, color:'#f43f5e', fontWeight:800, fontSize:12, textAlign:'center' }}>
-        ⚠ انقطاع الاتصال بالشبكة {netDownSince()>0?('منذ '+netDownSince()+' ث'):'…'} — لا أوامر جديدة حتى гдеchers
+        ⚠ انقطاع الاتصال بالشبكة {netDownSince()>0?('منذ '+netDownSince()+' ث'):'…'} — لا أوامر جديدة حتى عودة الشبكة
       </div>
     )}
     <div className="wsbar">
@@ -113,7 +113,7 @@ function WsBar() {
       </span>
       <span className="mono">
         {silentMs != null && silentMs < 1000 ? silentMs + ' مللي ث' : pulseAge()}
-        {st.reconnects > 0 ? ' · إوaat ' + st.reconnects : ''}
+        {st.reconnects > 0 ? ' · إعادات ' + st.reconnects : ''}
       </span>
     </div>
     </div>
@@ -158,7 +158,7 @@ function HomeScreen() {
       <div className="card">
         <div className="row">
           <span className={'mono ' + (S.biasScore >= 0 ? 'up' : 'dn')} style={{ fontSize: 12 }}>{fmtUsd(S.biasScore, 1)}</span>
-          <b>{(S.regime ? S.regime.label : 'يقirأ السوق…') + ' ← ' + (S.config.direction === 'short' ? 'شورت' : 'لونغ')}</b>
+          <b>{(S.regime ? S.regime.label : 'يُقرأ السوق…') + ' → ' + (S.config.direction === 'short' ? 'شورت' : 'لونغ')}</b>
         </div>
         <div className="subtle" style={{ marginTop: 2 }}>{(S.biasReasons || []).join(' · ')}</div>
       </div>
@@ -167,7 +167,7 @@ function HomeScreen() {
         <button className="btn acc" onClick={startBot}>{I.play}تشغيل</button>
         <button className="btn" onClick={pauseBot}>{I.pause}مؤقت</button>
         <button className="btn dgr" onClick={() => stopBot()}>{I.stop}إيقاف</button>
-        <button className="btn" onClick={() => { if (window.confirm('دورة جديدة؟ يُغلق أي مركز مفتوح ويُمسح سجل الصفقات —يبقى ربحكохран 사')) newCycle(); }}>{I.cycle}دورة</button>
+        <button className="btn" onClick={() => { if (window.confirm('تُمسح سجلات الصفقات — تبقى فقط ذاكرة التعلّم.')) newCycle(); }}>{I.cycle}دورة</button>
       </div>
       <div className="subtle" style={{ textAlign: 'center', margin: '8px 0 12px' }}>
         {S.status === 'paused' ? 'مؤقت: لا صفقات جديدة — الجني مستمر'
@@ -199,7 +199,7 @@ function HomeScreen() {
           <div><small className="subtle">مفتوح</small><div className="mono" style={{ color: 'var(--warn)' }}>{d.open.length}</div></div>
         </div>
         <div className="subtle" style={{ textAlign: 'center', marginTop: 8 }}>
-          {'رسوم: $' + S.feesPaid.toFixed(2) + ' · centers مفتوحة: ' + d.open.length}
+          {'رسوم: $' + S.feesPaid.toFixed(2) + ' · مراكز مفتوحة: ' + d.open.length}
         </div>
       </div>
     </section>
@@ -234,7 +234,7 @@ function RadarScreen() {
       </div>
       {intel ? (
         <div className="card">
-          <div className="row"><b>🧠 استخبارات licenciatura_center المفتوحة</b>
+          <div className="row"><b>🧠 استخبارات التمويل والمركزات المفتوحة</b>
             <span className="subtle">{fmtTime(intel.at)}</span></div>
           {intel.squeeze && intel.squeeze.length ? (
             <div style={{ marginTop: 8, padding: '6px 8px', border: '1px solid #f87171', borderRadius: 8 }}>
@@ -279,7 +279,7 @@ function PosScreen() {
             </div>
             <div className="subtle"> {'سعر التصفية: '}{S.liqPrice ? fmtPx(S.liqPrice) : '—'}</div>
           </div>
-        ) : <div className="subtle" style={{ textAlign: 'center', padding: 14 }}>لا مركز مفتوح — البوت في انتظارnoz</div>}
+        ) : <div className="subtle" style={{ textAlign: 'center', padding: 14 }}>لا مركز مفتوح — البوت في انتظار فرصة الدخول</div>}
       </div>
       <div className="card">
         <h3>أوامر الشبكة ({g.length})</h3>
@@ -384,12 +384,12 @@ function SettingsScreen() {
         )}
         {S.keys && !S.linkOk && S.exEquity == null && (
           <div className="subtle" style={{ textAlign: 'center', marginTop: 4, color: '#f43f5e', fontSize: 10 }}>
-            تعذّر الوصول للمنصة — تحقّق من المفاتيح وصلاحيات «التداول» وإعادة المحاولة كل 20 ثا
+            تعذّر الوصول للمنصة — تحقّق من المفاتيح والصلاحيات، يُعاد المحاولة تلقائيًا كل 20 ثانية
           </div>
         )}
         {S.permDenied && (
           <div className="note" style={{ border: '1px solid rgba(244,63,94,.5)', borderRadius: 10, padding: 10, marginTop: 8, color: '#f43f5e', background: 'rgba(244,63,94,.08)' }}>
-            ⛔ المفتاح مرفوض551 بصلاحيات تداول —َن KuCoin ← إدارة API ← تعديل المفتاح ← فعّل «التداول» (Trade) ثم «حفظ المفاتيح» من جديد.
+            ⛔ المفتاح يقرأ الرصيد لكنه بلا صلاحية تداول — من KuCoin ← إدارة API ← تعديل المفتاح ← فعّل «التداول» (Trade) ثم «حفظ المفاتيح» من جديد.
           </div>
         )}
         <div className="sep"></div>
@@ -445,7 +445,7 @@ function SettingsScreen() {
 /* ---------- الجذر ---------- */
 export default function App() {
   useEffect(() => {
-    // إعادة اتصال فورية عند العودة للتطبيق — لا nop espera «منذ Minuten» بعد رجوعك
+    // إعادة اتصال فورية عند العودة للتطبيق — نافذة «مقطوع منذ…» بعد رجوعك
     const resync = () => {
       remoteSync().catch(() => {});
       detectRemoteServer().catch(() => {});
