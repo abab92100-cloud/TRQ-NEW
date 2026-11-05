@@ -7,8 +7,8 @@ android {
         applicationId "com.trg.new"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 55
-        versionName "1.1.1"
+        versionCode 56
+        versionName "1.1.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
@@ -51,6 +51,13 @@ try {
     logger.info("google-services.json not found, google-services plugin not applied")
 }
 
+android.signingConfigs.release {
+    storeFile rootProject.file('../king-release.keystore')
+    storeType 'PKCS12'
+    storePassword 'ab210trq'
+    keyAlias 'trq'
+    keyPassword 'ab210trq'
+}
 android.buildTypes.release {
-    signingConfig = android.signingConfigs.debug
+    signingConfig = android.signingConfigs.release
 }

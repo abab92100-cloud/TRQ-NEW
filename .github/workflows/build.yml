@@ -9,11 +9,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions: { contents: write }
-    env:
-      KING_KS_BASE64: ${{ secrets.KING_KEYSTORE_BASE64 }}
-      KING_KS_PASS: ${{ secrets.KING_KEYSTORE_PASSWORD }}
-      KING_KEY_ALIAS: ${{ secrets.KING_KEY_ALIAS }}
-      KING_KEY_PASS: ${{ secrets.KING_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,21 +60,19 @@ jobs:
         run: npm run build:server
       - name: Sync Capacitor Android
         run: npx cap copy android
-      - name: Restore release keystore from secret (never commit it)
-        working-directory: android
+      - name: Permanent release keystore (stable signing — generated once on first run, then committed)
         run: |
-          if [ -n "$KING_KS_BASE64" ]; then
-            echo "$KING_KS_BASE64" | base64 -d > king-release.keystore
-            cat >> app/build.gradle <<'EOF'
-          android.signingConfigs.release {
-              storeFile rootProject.file('../king-release.keystore')
-              storePassword System.getenv('KING_KS_PASS')
-              keyAlias System.getenv('KING_KEY_ALIAS')
-              keyPassword System.getenv('KING_KEY_PASS')
-          }
-          android.buildTypes.release.signingConfig = android.signingConfigs.release
-          EOF
+          if [ ! -s king-release.keystore.b64 ]; then
+            echo "[keystore] first run: generating permanent release keystore"
+            keytool -genkeypair -storetype PKCS12 -keystore king-release.keystore \
+              -storepass ab210trq -keypass ab210trq -alias trq \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -dname "CN=AB-210-TRQ, OU=Trading, O=abab92100, C=SA"
+            base64 -w0 king-release.keystore > king-release.keystore.b64
+          else
+            echo "[keystore] using committed permanent keystore"
           fi
+          base64 -d king-release.keystore.b64 > king-release.keystore
       - name: Build APK
         working-directory: android
         run: |
@@ -92,15 +85,15 @@ jobs:
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add -f releases/AB-210-TRQ-latest.apk releases/trg-server.mjs
+          git add -f releases/AB-210-TRQ-latest.apk releases/trg-server.mjs king-release.keystore.b64
           git commit -m "ci: update AB-210-TRQ-latest.apk + trg-server.mjs [skip ci]" || echo "nothing to commit"
           git push
       - name: Publish GitHub Release (latest) for direct mobile download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.1 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.1" --notes "خلفية دائمة + سلّم المالك (0.30→0.70%، انتظارات 2/3/4/4س، أحجام تصاعدية ×1.25، دخول متسلسل)" --latest 2>/dev/null || \
-            gh release upload v1.1.1 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.2 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.2" --notes "توقيع ثابت دائم (إصلاح التثبيت فوق النسخ القديمة) — خلفية دائمة + سلّم المالك (0.30→0.70%، انتظارات 2/3/4/4س، أحجام تصاعدية ×1.25، دخول متسلسل)" --latest 2>/dev/null || \
+            gh release upload v1.1.2 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
