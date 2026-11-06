@@ -17,7 +17,7 @@ import {
   requestHalt, clearHalt, haltRequested, setFleetGate, resetState,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.4';
+const SRV_VER = 'AB-210-TRQ-1.1.5';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -205,8 +205,9 @@ const srv = createServer(async (req, res) => {
         const a = String(j.action || '');
         switch (a) {
           case 'start': startBot(); return send(res, 200, { ok: true }, req);
-          case 'pause': pauseBot(); return send(res, 200, { ok: true }, req);
+          case 'pause': await pauseBot(); return send(res, 200, { ok: true, hold: !!S._holdAfterHarvest }, req);
           case 'stop': await stopBot(); return send(res, 200, { ok: true }, req);
+          case 'exEquity': return send(res, 200, { ok: true, eq: (S.exEquity != null ? S.exEquity : null), mode: S.config.mode, hasKeys: !!S.keys }, req);
           case 'newCycle': newCycle(); return send(res, 200, { ok: true }, req);
           case 'saveCfg': saveCfg(j.cfg || {}); return send(res, 200, { ok: true }, req);
           case 'saveKeys': {
@@ -266,12 +267,41 @@ const srv = createServer(async (req, res) => {
           jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 15000, { action: 'syncBooks', totalEq: eq, share })));
         return send(res, 200, { ok: true, equity: eq, share, results: rs }, req);
       }
+      /* ─── المفاتيح الثلاثة (أمر المالك 6 نوفمبر) ───
+         مؤقت  = كل محرك: الصفقات القائمة تُدار حتى جنيها ثم يتوقف، لا صفقات جديدة
+         إيقاف = إقفال كل الصفقات فوراً بسعر السوق + إيقاف الأسطول كله
+         دورة  = إغلاق + مسح السجلات + احتساب رصيد المنصة + بدء دورة جديدة بدراسة */
       if (a === 'stop' || a === 'pause' || a === 'start') {
-        try{ if(a==='start') clearHalt(); else requestHalt(a==='stop'?'إيقاف':'توقف'); }catch{}
-        const payload = { action: a };
-        Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
-          jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, payload))).catch(()=>{});
-        return send(res, 200, { ok: true, instant: true, halted: a !== 'start' }, req);
+        try { if (a === 'start') clearHalt(); } catch { }
+        const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
+          jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', a === 'stop' ? 25000 : 8000, { action: a })));
+        return send(res, 200, { ok: true, instant: a !== 'start', results: rs.map(r => !!(r && r.ok)) }, req);
+      }
+      if (a === 'newCycle') {
+        try { clearHalt(); } catch { }
+        // 1) إقفال كل الصفقات فوراً (كما زر إيقاف) — دورة جديدة تبدأ مسطحة
+        const stops = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
+          jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 25000, { action: 'stop' })));
+        // 2) مسح السجلات والحالة في كل محرك (المفاتيح والإعدادات تبقى)
+        const resets = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
+          jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 30000, { action: 'resetState' })));
+        // 3) احتساب الرصيد الحالي من المنصة وإعادة توزيعه (خُمس لكل محرك)
+        let eq = 0;
+        for (let i = 1; i <= FLEET_N; i++) {
+          const r = await jfetch('http://127.0.0.1:' + (BASE_PORT + i) + '/cmd', 10000, { action: 'exEquity' });
+          if (r && Number(r.eq) > 0) { eq = Number(r.eq); break; }
+        }
+        if (eq > 0) {
+          const share = Math.round((eq / FLEET_N) * 100) / 100;
+          await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
+            jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 15000, { action: 'syncBooks', totalEq: eq, share })));
+        }
+        // 4) تشغيل جديد: دراسة كاملة واختيار عملة قبل أي دخول (بوابة التشغيل)
+        const starts = await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
+          jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, { action: 'start' })));
+        pushLog('server', '🔄 دورة جديدة: قُفلت الصفقات فوراً · مُسحت السجلات · رصيد المنصة الآن ' +
+          (eq > 0 ? '$' + eq.toFixed(2) + ' (خُمس لكل أسطول: $' + (Math.round((eq / FLEET_N) * 100) / 100).toFixed(2) + ')' : '(وضع ورقي — بلا منصة)') + ' — بدأت دراسة جديدة قبل أي دخول');
+        return send(res, 200, { ok: true, equity: eq, stopped: stops.map(r => !!(r && r.ok)), results: resets.map(r => !!(r && r.ok)), started: starts.map(r => !!(r && r.ok)) }, req);
       }
       if (a === 'haltState') return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === 'resetAll') {

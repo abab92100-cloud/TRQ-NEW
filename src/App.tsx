@@ -209,11 +209,12 @@ function HomeScreen() {
       <div className="grid4">
         <button className="btn acc" onClick={startBot}>{I.play}تشغيل</button>
         <button className="btn" onClick={pauseBot}>{I.pause}مؤقت</button>
-        <button className="btn dgr" onClick={() => stopBot()}>{I.stop}إيقاف</button>
-        <button className="btn" onClick={() => { if (window.confirm('تُمسح سجلات الصفقات — تبقى فقط ذاكرة التعلّم.')) newCycle(); }}>{I.cycle}دورة</button>
+        <button className="btn dgr" onClick={() => { if (window.confirm('سيتم إقفال كل الصفقات فوراً بسعر السوق وإيقاف الأسطول كاملاً. متابعة؟')) stopBot(); }}>{I.stop}إيقاف</button>
+        <button className="btn" onClick={() => { if (window.confirm('دورة جديدة: تُقفل الصفقات فوراً، تُمسح السجلات، يُحتسب رصيد المنصة الحالي، وتبدأ دراسة جديدة قبل أي دخول. متابعة؟')) newCycle(); }}>{I.cycle}دورة</button>
       </div>
       <div className="subtle" style={{ textAlign: 'center', margin: '8px 0 12px' }}>
-        {S.status === 'paused' ? 'مؤقت: لا صفقات جديدة — الجني مستمر'
+        {S._holdAfterHarvest ? '⏸️ مؤقت: الصفقات الحالية تُدار حتى جنيها ثم يتوقف كل أسطول'
+          : S.status === 'paused' ? 'مؤقت: لا صفقات جديدة — الجني مستمر'
           : live ? 'البوت يتداول الآن على بيانات لحظية'
           : S.status === 'running' ? 'البوت شغّال — بانتظار النبض'
           : 'اضغط تشغيل لبدء البوت'}

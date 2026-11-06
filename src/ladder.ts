@@ -117,6 +117,9 @@ function placeGroup(g: number, anchor: number) {
 
 export function ladderTick(price: number) {
   if (!ladderOn() || S.status !== 'running' || !(price > 0)) return;
+  // مؤقت (أمر المالك 6 نوفمبر): لا مجموعات ولا تسليح جديد — إدارة الصفقة
+  // القائمة حتى جنيها فقط (الجني والتتبع يعملان خارج السلم)
+  if (S._holdAfterHarvest) return;
   const st = ladderState();
   // تغيّرت العملة (دراسة جديدة / جني) → سلم جديد كلياً
   if (st.active && st.symbol !== S.config.symbol) resetLadder('تغيّرت العملة إلى ' + S.config.displaySymbol + ' — سلم جديد');

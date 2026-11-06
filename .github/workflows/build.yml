@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.4 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.4" --notes "إصلاح توقف التطبيق في الخلفية: لافتة تحذير صريحة عند غياب سيرفر Termux + إصلاح أصل CORS للسيرفر — وإصلاح تعطّل فتح الصفقات (مواصفات العقد تُقرأ من الذاكرة المحفوظة فوراً بدل الانتظار) — وإصلاح تحميل الشارت عند التنقل بين الفريمات — وتباعد مسح السوق بين الأساطيل لتخفيف ضغط 429" --latest 2>/dev/null || \
-            gh release upload v1.1.4 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.5 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.5" --notes "المفاتيح الثلاثة كما طلب المالك: «مؤقت» يبقي الصفقات القائمة مدارة حتى جنيها ثم يتوقف كل أسطول تلقائياً — «إيقاف» يقفل كل الصفقات فوراً بسعر السوق ويوقف الأسطول كله — «دورة» يغلق ويمسح السجلات ويحتسب رصيد المنصة الحالي ويبدأ دورة جديدة — و«تشغيل» لا يدخل إلا بعد اكتمال الدراسة الكاملة واختيار العملة" --latest 2>/dev/null || \
+            gh release upload v1.1.5 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
