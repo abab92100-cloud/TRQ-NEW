@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.6 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.6" --notes "حرية الأساطيل: كل أسطول مدروس وجاهز يضع منطقة دخوله فوراً بنفسه ولا ينتظر أي أسطول آخر — الشرط الوحيد: لا دخول بدون دراسة مكتملة — وتسريع الاستجابة: المفاتيح تنفذ فوراً دون انتظار، مزامنة الأسطول كل 1.2 ثانية، والشارت يعرض الفريمات والعملات فورياً من الكاش ثم يحدث بالخلفية" --latest 2>/dev/null || \
-            gh release upload v1.1.6 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.7 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.7" --notes "الهدف النسبي: الجني أصبح نسبة من الحجم المنفذ فعلياً مع حد أدنى 3× العمولة فلا إغلاقات تذوبها العمولة — وفلتر الحيوية: العملة الميتة مرفوضة مهما علت درجتها — ومهلة التدوير: ساعة كاملة بلا تقدم مع ربح يغطي العمولتين = إغلاق بسلام وتدوير لعملة نشطة بعد دراسة — وقفل اليقظة مفعّل تلقائياً ليل نهار مع سكربت الإقلاع" --latest 2>/dev/null || \
+            gh release upload v1.1.7 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -454,8 +454,8 @@ function SettingsScreen() {
           <div><label className="lb">المستويات</label><input className="field" inputMode="numeric" value={levels} onChange={e => setLevels(e.target.value)} /></div>
           <div><label className="lb">خطوة الشبكة %</label><input className="field" inputMode="decimal" value={step} onChange={e => setStep(e.target.value)} /></div>
           <div><label className="lb">صيد %</label><input className="field" inputMode="decimal" value={hunt} onChange={e => setHunt(e.target.value)} /></div>
-          <div><label className="lb">جني الربح الصافي $ (مدروس)</label><input className="field" inputMode="decimal" value={tpNet} onChange={e => setTpNet(e.target.value)} /></div>
-          <div><label className="lb">🎯 جني الربح الثابت $ لكل صفقة</label><input className="field" inputMode="decimal" value={tpUsd} onChange={e => setTpUsd(e.target.value)} placeholder="مثال: 1 أو 3 — 0 = مدروس" /></div>
+          <div><label className="lb">جني $ — لم يعد مستخدمًا (الهدف نسبي تلقائي v1.1.7)</label><input className="field" inputMode="decimal" value={tpNet} onChange={e => setTpNet(e.target.value)} /></div>
+          <div><label className="lb">🎯 الهدف النسبي التلقائي (v1.1.7): نسبة من الحجم المنفذ + حد أدنى 3× العمولة</label><input className="field" inputMode="decimal" value={tpUsd} onChange={e => setTpUsd(e.target.value)} placeholder="تلقائي بالكامل — الحقل غير مستخدم" /></div>
           <div><label className="lb">رصيد الدورة $</label><input className="field" inputMode="decimal" value={bal} onChange={e => setBal(e.target.value)} /></div>
           <div>
             <label className="lb">الاتجاه</label>
