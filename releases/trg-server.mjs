@@ -1019,7 +1019,8 @@ var S = {
     patienceUsd: 0,
     gapMode: false,
     ladderMode: true,
-    seqMode: true
+    seqMode: false
+    // الأساطيل حرة (أمر المالك 6 نوفمبر): كل محرك يضع منطقة دخوله فور اكتمال دراسته — لا انتظار على أسطول آخر
   },
   status: "idle",
   heartbeat: 0,
@@ -1653,23 +1654,8 @@ function clearHalt() {
 }
 function setFleetGate(opened, slot) {
   const o = Math.max(0, Math.min(10, Number(opened) || 0)), sl = Math.max(1, Number(slot) || 1);
-  const before = Number(S._fleetOpened) || 0;
   S._fleetOpened = o;
   S._mySlot = sl;
-  if (o !== before) {
-    if (o < sl - 1 && (!S._seqLogAt || Date.now() - S._seqLogAt > 6e4)) {
-      S._seqLogAt = Date.now();
-      pushLog("server", "\u23F3 \u0627\u0644\u062A\u0633\u0644\u0633\u0644: \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + (o + 1) + " \u0644\u064A\u0624\u0633\u0633 \u0635\u0641\u0642\u062A\u0647 \u0642\u0628\u0644 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + sl + " \u2014 \u062B\u0645 \u062F\u0631\u0627\u0633\u0629 \u062C\u062F\u064A\u062F\u0629");
-    } else if (o === sl - 1 && (!S._seqReadyAt || Date.now() - S._seqReadyAt > 6e4)) {
-      S._seqReadyAt = Date.now();
-      pushLog("server", "\u2705 \u062F\u0648\u0631 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + sl + " \u2014 \u062F\u0631\u0627\u0633\u0629 \u0645\u062D\u062F\u062B\u0629 \u0644\u0644\u0645\u0646\u0635\u0629 \u062B\u0645 \u062A\u064F\u0641\u062A\u062D \u0635\u0641\u0642\u062A\u0647");
-      try {
-        S._studyAt = 0;
-        startStudy(false);
-      } catch {
-      }
-    }
-  }
   return { ok: true, opened: o, slot: sl };
 }
 function fleetFullNow() {
@@ -1695,7 +1681,6 @@ function entryGateOpen() {
     } catch (e) {
       logSwallow("silent-catch", e);
     }
-    if (S.config.seqMode === true && (Number(S._fleetOpened) || 0) < (Number(S._mySlot) || 1) - 1) return false;
     if (fleetFullNow()) return false;
     if ((S._fleetTaken || []).map(String).includes(String(S.config.symbol))) return false;
     return true;
@@ -4773,13 +4758,6 @@ function huntTrigger(p) {
   if (toxicBlocked(S.config.direction)) return null;
   if (batchHoldActive()) return null;
   if (S._noNewEntries) return null;
-  if (S.config.seqMode === true && !S.position && (Number(S._fleetOpened) || 0) < (Number(S._mySlot) || 1) - 1) {
-    if (!S._seqBlkAt || Date.now() - S._seqBlkAt > 6e4) {
-      S._seqBlkAt = Date.now();
-      pushLog("server", "\u23F3 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + (Number(S._mySlot) || 1) + " \u064A\u0646\u062A\u0638\u0631 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 " + ((Number(S._fleetOpened) || 0) + 1) + " \u2014 \u0644\u0627 \u0641\u062A\u062D \u0642\u0628\u0644 \u062F\u0648\u0631\u0647");
-    }
-    return null;
-  }
   if (!S.position && fleetFullNow()) {
     if (!S._fullBlkAt || Date.now() - S._fullBlkAt > 3e5) {
       S._fullBlkAt = Date.now();
@@ -6704,7 +6682,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.5";
+var SRV_VER = "AB-210-TRQ-1.1.6";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -6796,13 +6774,18 @@ if (SLOT > 0) {
   }, 1500 + SLOT * 300);
 }
 var slotStates = [];
+var _slotPollAt = 0;
 async function pollSlots() {
-  for (let i = 1; i <= FLEET_N; i++) {
-    const j = await jfetch("http://127.0.0.1:" + (BASE_PORT + i) + "/state", 2e3);
-    if (j && j.ok && j.state) slotStates[i] = j.state;
-  }
+  await Promise.all(Array.from({ length: FLEET_N }, async (_, i) => {
+    const j = await jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/state", 1200);
+    if (j && j.ok && j.state) slotStates[i + 1] = j.state;
+  }));
+  _slotPollAt = Date.now();
 }
-setInterval(pollSlots, 1e4).unref?.();
+setInterval(() => {
+  pollSlots().catch(() => {
+  });
+}, 2500).unref?.();
 var STRAT_FIELDS = ["gridStepPct", "levels", "leverage", "tpUsd", "tpNet", "huntPct", "directionMode", "hfMode"];
 var alignFleetStrategy = async () => {
   const base = {};
@@ -7007,6 +6990,12 @@ var srv = createServer(async (req, res) => {
       return send(res, 200, { ok: true, taken }, req);
     }
     if (req.method === "GET" && u.pathname === "/state") {
+      if (Date.now() - _slotPollAt > 1e3) {
+        try {
+          await pollSlots();
+        } catch {
+        }
+      }
       const sel = parseInt(u.searchParams.get("sel") || "0", 10) || 0;
       const st = mergedState(sel);
       if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: "idle", heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } }, req);
@@ -7033,31 +7022,42 @@ var srv = createServer(async (req, res) => {
           if (a === "start") clearHalt();
         } catch {
         }
-        const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", a === "stop" ? 25e3 : 8e3, { action: a })));
-        return send(res, 200, { ok: true, instant: a !== "start", results: rs.map((r) => !!(r && r.ok)) }, req);
+        Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 25e3, { action: a }))).catch(() => {
+        });
+        return send(res, 200, { ok: true, instant: true }, req);
       }
       if (a === "newCycle") {
+        if (globalThis.__cycleBusy) return send(res, 200, { ok: true, busy: true }, req);
+        globalThis.__cycleBusy = true;
         try {
           clearHalt();
         } catch {
         }
-        const stops = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 25e3, { action: "stop" })));
-        const resets = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 3e4, { action: "resetState" })));
-        let eq = 0;
-        for (let i = 1; i <= FLEET_N; i++) {
-          const r = await jfetch("http://127.0.0.1:" + (BASE_PORT + i) + "/cmd", 1e4, { action: "exEquity" });
-          if (r && Number(r.eq) > 0) {
-            eq = Number(r.eq);
-            break;
+        (async () => {
+          const stops = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 25e3, { action: "stop" })));
+          const resets = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 3e4, { action: "resetState" })));
+          let eq = 0;
+          for (let i = 1; i <= FLEET_N; i++) {
+            const r = await jfetch("http://127.0.0.1:" + (BASE_PORT + i) + "/cmd", 1e4, { action: "exEquity" });
+            if (r && Number(r.eq) > 0) {
+              eq = Number(r.eq);
+              break;
+            }
           }
-        }
-        if (eq > 0) {
-          const share = Math.round(eq / FLEET_N * 100) / 100;
-          await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 15e3, { action: "syncBooks", totalEq: eq, share })));
-        }
-        const starts = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "start" })));
-        pushLog("server", "\u{1F504} \u062F\u0648\u0631\u0629 \u062C\u062F\u064A\u062F\u0629: \u0642\u064F\u0641\u0644\u062A \u0627\u0644\u0635\u0641\u0642\u0627\u062A \u0641\u0648\u0631\u0627\u064B \xB7 \u0645\u064F\u0633\u062D\u062A \u0627\u0644\u0633\u062C\u0644\u0627\u062A \xB7 \u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0622\u0646 " + (eq > 0 ? "$" + eq.toFixed(2) + " (\u062E\u064F\u0645\u0633 \u0644\u0643\u0644 \u0623\u0633\u0637\u0648\u0644: $" + (Math.round(eq / FLEET_N * 100) / 100).toFixed(2) + ")" : "(\u0648\u0636\u0639 \u0648\u0631\u0642\u064A \u2014 \u0628\u0644\u0627 \u0645\u0646\u0635\u0629)") + " \u2014 \u0628\u062F\u0623\u062A \u062F\u0631\u0627\u0633\u0629 \u062C\u062F\u064A\u062F\u0629 \u0642\u0628\u0644 \u0623\u064A \u062F\u062E\u0648\u0644");
-        return send(res, 200, { ok: true, equity: eq, stopped: stops.map((r) => !!(r && r.ok)), results: resets.map((r) => !!(r && r.ok)), started: starts.map((r) => !!(r && r.ok)) }, req);
+          if (eq > 0) {
+            const share = Math.round(eq / FLEET_N * 100) / 100;
+            await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 15e3, { action: "syncBooks", totalEq: eq, share })));
+          }
+          const starts = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "start" })));
+          pushLog("server", "\u{1F504} \u062F\u0648\u0631\u0629 \u062C\u062F\u064A\u062F\u0629: \u0642\u064F\u0641\u0644\u062A \u0627\u0644\u0635\u0641\u0642\u0627\u062A \u0641\u0648\u0631\u0627\u064B \xB7 \u0645\u064F\u0633\u062D\u062A \u0627\u0644\u0633\u062C\u0644\u0627\u062A \xB7 \u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0622\u0646 " + (eq > 0 ? "$" + eq.toFixed(2) + " (\u062E\u064F\u0645\u0633 \u0644\u0643\u0644 \u0623\u0633\u0637\u0648\u0644: $" + (Math.round(eq / FLEET_N * 100) / 100).toFixed(2) + ")" : "(\u0648\u0636\u0639 \u0648\u0631\u0642\u064A \u2014 \u0628\u0644\u0627 \u0645\u0646\u0635\u0629)") + " \u2014 \u0628\u062F\u0623\u062A \u062F\u0631\u0627\u0633\u0629 \u062C\u062F\u064A\u062F\u0629 \u0642\u0628\u0644 \u0623\u064A \u062F\u062E\u0648\u0644");
+          void stops;
+          void resets;
+          void starts;
+        })().catch(() => {
+        }).then(() => {
+          globalThis.__cycleBusy = false;
+        });
+        return send(res, 200, { ok: true, accepted: true }, req);
       }
       if (a === "haltState") return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === "resetAll") {
