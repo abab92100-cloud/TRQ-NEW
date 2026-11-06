@@ -499,6 +499,7 @@ function placeGroup(g, anchor) {
 }
 function ladderTick(price) {
   if (!ladderOn() || S.status !== "running" || !(price > 0)) return;
+  if (S._holdAfterHarvest) return;
   const st = ladderState();
   if (st.active && st.symbol !== S.config.symbol) resetLadder("\u062A\u063A\u064A\u0651\u0631\u062A \u0627\u0644\u0639\u0645\u0644\u0629 \u0625\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0633\u0644\u0645 \u062C\u062F\u064A\u062F");
   const short = ladderShort();
@@ -1029,6 +1030,10 @@ var S = {
   _noNewEntries: false,
   _cycleMaxFills: 4,
   _nextCycleMax: 0,
+  _holdAfterHarvest: false,
+  _awaitFreshStudy: false,
+  _startGateAt: 0,
+  // مفتاحا «مؤقت» و«تشغيل بعد الدراسة» (أمر المالك 6 نوفمبر)
   exPositions: [],
   _flatStrikes: 0,
   _flatConfirmed: false,
@@ -1200,6 +1205,8 @@ function saveAll() {
       // تضيع إعادة الاختيار عند إعادة تشغيل السيرفر/الجوال بعد الجني مباشرة
       _harvestAt: S._harvestAt || 0,
       _reselectDone: !!S._reselectDone,
+      _holdAfterHarvest: !!S._holdAfterHarvest,
+      // «مؤقت» يبقى فعّالاً حتى بعد إعادة تشغيل السيرفر
       lastHuntAt: S.lastHuntAt || 0,
       _dwellAt: S._dwellAt || 0,
       startedAt: S.startedAt || 0
@@ -1267,6 +1274,7 @@ function loadAll() {
         _harvestAt: rt._harvestAt || 0,
         _reselectDone: !!rt._reselectDone,
         _ladder: rt._ladder || null,
+        _holdAfterHarvest: !!rt._holdAfterHarvest,
         lastHuntAt: rt.lastHuntAt || 0,
         _dwellAt: rt._dwellAt || 0,
         startedAt: rt.startedAt || 0
@@ -1561,7 +1569,7 @@ async function backgroundPipeline() {
     const __radarAge = S.radar && S.radar.at ? Date.now() - S.radar.at : 1e12;
     const r = S.radar && S.radar.list && S.radar.list.length && __radarAge < 6e5 ? S.radar : await scanRadar();
     if (!r || !r.list || !r.list.length) return;
-    if (!S.position && !studying() && S.status === "running" && !fleetFullNow()) {
+    if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest) {
       S.recentCoins = S.recentCoins || {};
       const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > 24 * 3600 * 1e3;
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
@@ -1671,6 +1679,14 @@ function entryGateOpen() {
   try {
     if (S.status !== "running") return false;
     if (S.position) return true;
+    if (S._holdAfterHarvest) return false;
+    if (S._awaitFreshStudy) {
+      if (studying()) return false;
+      const rAt = S.radar && S.radar.at || 0;
+      if (!(rAt >= (S._startGateAt || 0)) || !(S.radar && S.radar.list && S.radar.list.length)) return false;
+      S._awaitFreshStudy = false;
+      pushLog("server", "\u2705 \u0627\u0643\u062A\u0645\u0644\u062A \u0627\u0644\u062F\u0631\u0627\u0633\u0629 \u0648\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0639\u0645\u0644\u0629 (" + S.config.displaySymbol + ") \u2014 \u064A\u0628\u062F\u0623 \u0627\u0644\u062F\u062E\u0648\u0644 \u0627\u0644\u0622\u0646");
+    }
     if (!S._entriesEnabled) return false;
     if (S._noNewEntries) return false;
     if (batchHoldActive()) return false;
@@ -1690,6 +1706,7 @@ function entryGateOpen() {
 function openNextReady() {
   if (!S._nextSymbol || !S._nextReady) return false;
   if (S.position) return false;
+  if (S._holdAfterHarvest) return false;
   if (fleetFullNow()) {
     if (!S._fullBlkAt || Date.now() - S._fullBlkAt > 3e5) {
       S._fullBlkAt = Date.now();
@@ -1933,7 +1950,7 @@ async function postHarvestReselect() {
       return Date.now() - t > 24 * 3600 * 1e3;
     };
     const cur = r.list.find((l) => l.symbol === S.config.symbol);
-    if (!S.position && !studying() && S.status === "running" && !fleetFullNow()) {
+    if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest) {
       S.recentCoins = S.recentCoins || {};
       const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > 24 * 3600 * 1e3;
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
@@ -2712,6 +2729,8 @@ function resetState() {
   S.status = "stopped";
   S._entriesEnabled = false;
   S._eqStart = 0;
+  S._holdAfterHarvest = false;
+  S._awaitFreshStudy = false;
   pushLog("server", "\u{1F9F9} \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u062D\u0627\u0644\u0629: \u062D\u064F\u0630\u0641 " + before.journal + " \u0635\u0641\u0642\u0629 \u0642\u062F\u064A\u0645\u0629 \u0648" + before.logs + " \u0633\u062C\u0644\u0627\u064B \u0648\u0631\u0635\u064A\u062F \u0631\u0628\u062D \u062A\u0642\u062F\u064A\u0631\u064A " + fmtUsd(before.realized) + " \u2014 \u0628\u062F\u0627\u064A\u0629 \u0646\u0638\u064A\u0641\u0629 (\u0627\u0644\u0645\u0641\u0627\u062A\u064A\u062D \u0648\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0645\u062D\u0641\u0648\u0638\u0629)");
   saveAll();
   emit();
@@ -2820,6 +2839,8 @@ async function cleanStart() {
   S._flatConfirmed = false;
   S._flatStrikes = 0;
   S._waitFreshUntil = 0;
+  S._holdAfterHarvest = false;
+  S._awaitFreshStudy = false;
   S.recentCoins = {};
   S._nextReady = false;
   S._nextSymbol = null;
@@ -2934,8 +2955,8 @@ async function orphanSweep() {
 }
 async function exPlaceLimit(intent) {
   await ensureLiveMeta(intent.symbol);
-  if (!intent.reduceOnly && (S.status !== "running" || haltRequested())) {
-    throw new Error("\u26D4 \u0627\u0644\u0628\u0648\u062A \u063A\u064A\u0631 \u0645\u064F\u0634\u063A\u0651\u0644 \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u062F\u062E\u0648\u0644 (\u0627\u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644)");
+  if (!intent.reduceOnly && (S.status !== "running" || haltRequested() || S._holdAfterHarvest)) {
+    throw new Error("\u26D4 \u0627\u0644\u0628\u0648\u062A \u063A\u064A\u0631 \u0645\u064F\u0634\u063A\u0651\u0644 \u0623\u0648 \u0645\u0624\u0642\u062A \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u062F\u062E\u0648\u0644 (\u0627\u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644)");
   }
   if (!intent.reduceOnly && !S._entriesEnabled) {
     throw new Error("\u26D4 \u0628\u0648\u0627\u0628\u0629 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u063A\u0644\u0642\u0629 \u2014 \u0646\u0641\u0651\u0630 \xAB\u062A\u0641\u0639\u064A\u0644 \u0627\u0644\u0623\u0648\u0627\u0645\u0631\xBB");
@@ -2987,6 +3008,7 @@ async function exPlaceLimit(intent) {
 function assertEntryAllowed(symbol2, qty, price) {
   if (S.status !== "running") throw new Error("\u26D4 \u0627\u0644\u0628\u0648\u062A \u063A\u064A\u0631 \u0645\u064F\u0634\u063A\u0651\u0644 \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u062F\u062E\u0648\u0644");
   if (haltRequested()) throw new Error("\u26D4 \u0645\u0641\u062A\u0627\u062D \u0627\u0644\u0625\u064A\u0642\u0627\u0641 \u0645\u0641\u0639\u0651\u0644 \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u062F\u062E\u0648\u0644");
+  if (S._holdAfterHarvest) throw new Error("\u26D4 \u0645\u0624\u0642\u062A \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u062F\u062E\u0648\u0644 \u062C\u062F\u064A\u062F\u0629 \u062D\u062A\u0649 \u0627\u0644\u062C\u0646\u064A");
   if (!S._entriesEnabled) throw new Error("\u26D4 \u0628\u0648\u0627\u0628\u0629 \u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0645\u063A\u0644\u0642\u0629 \u2014 \u0646\u0641\u0651\u0630 \xAB\u062A\u0641\u0639\u064A\u0644 \u0627\u0644\u0623\u0648\u0627\u0645\u0631\xBB");
   const placed = (Number(S._exEntryOpenN) || 0) + (Number(S._entryFillsN) || 0);
   if (placed >= 20) throw new Error("\u26D4 \u0627\u0643\u062A\u0645\u0644\u062A \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0627\u062A \u0627\u0644\u062E\u0645\u0633 (20 \u0623\u0645\u0631\u0627\u064B)");
@@ -4126,6 +4148,14 @@ function _harvestCleanup(fp) {
   }
   S.gridAnchor = null;
   if (fp > 0) S.huntAnchor = fp;
+  if (S._holdAfterHarvest) {
+    S._holdAfterHarvest = false;
+    S._awaitFreshStudy = false;
+    S.status = "stopped";
+    S._entriesEnabled = false;
+    pushLog("server", "\u23F9 \u0627\u0643\u062A\u0645\u0644 \u062C\u0646\u064A \u0627\u0644\u0635\u0641\u0642\u0629 \u2014 \u062A\u0648\u0642\u0641 \u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0643\u0645\u0627 \u0637\u064F\u0644\u0650\u0628 (\u0645\u0624\u0642\u062A). \u0627\u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644 \u0644\u0644\u0639\u0648\u062F\u0629");
+    toast("\u062C\u064F\u0646\u064A \u0627\u0644\u0631\u0628\u062D \u2014 \u062A\u0648\u0642\u0641 \u0627\u0644\u0623\u0633\u0637\u0648\u0644");
+  }
 }
 function creditExFill(l, delta, fp) {
   return creditExFillReal(l, delta, fp, null);
@@ -6129,12 +6159,14 @@ function startBot() {
     pushLog("server", "\u25B6\uFE0F \u062A\u0634\u063A\u064A\u0644: \u0628\u0648\u0627\u0628\u0629 \u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0645\u0641\u062A\u0648\u062D\u0629 \u2014 \u0627\u0644\u0628\u062D\u062B \u0627\u0644\u0634\u0627\u0645\u0644 \u0648\u0627\u0644\u062F\u0631\u0627\u0633\u0629 \u062B\u0645 \u0627\u0644\u0641\u062A\u062D");
   }
   try {
+    S._awaitFreshStudy = true;
+    S._startGateAt = Date.now();
     S._studyAt = 0;
     S._fleetOpened = Number(S._fleetOpened) || 0;
     startStudy(false);
     scanRadar().catch(() => {
     });
-    pushLog("server", "\u{1F50E} \u062A\u0634\u063A\u064A\u0644: \u0645\u0633\u062D \u0643\u0627\u0645\u0644 \u0644\u0644\u0633\u0648\u0642 \u0648\u062F\u0631\u0627\u0633\u0629 \u0645\u062D\u062F\u062B\u0629 \u2014 \u0644\u0627 \u062F\u062E\u0648\u0644 \u0642\u0628\u0644 \u0627\u0643\u062A\u0645\u0627\u0644\u0647\u0627");
+    pushLog("server", "\u{1F50E} \u062A\u0634\u063A\u064A\u0644: \u062F\u0631\u0627\u0633\u0629 \u0643\u0627\u0645\u0644\u0629 \u0644\u0644\u0633\u0648\u0642 \u0648\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0639\u0645\u0644\u0629 \u0642\u0628\u0644 \u0623\u064A \u062F\u062E\u0648\u0644 \u2014 \u0644\u0627 \u062F\u062E\u0648\u0644 \u0639\u0644\u0649 \u0627\u0644\u0645\u0648\u062C\u0648\u062F \u0645\u0628\u0627\u0634\u0631\u0629");
   } catch {
   }
   try {
@@ -6170,8 +6202,7 @@ function startBot() {
   S.startedAt = Date.now();
   S.heartbeat = 0;
   const pf = profFresh();
-  startStudy(!!pf);
-  if (!pf) pushLog("server", "\u062F\u0631\u0627\u0633\u0629 " + S.config.displaySymbol + " 60 \u062B\u0627\u0646\u064A\u0629 \u2014 \u0642\u064A\u0627\u0633 \u0627\u0644\u062A\u0642\u0644\u0628 \u0648\u0627\u0644\u0633\u0628\u0631\u064A\u062F \u0648\u0627\u0644\u0646\u0634\u0627\u0637 \u0642\u0628\u0644 \u0623\u064A \u062F\u062E\u0648\u0644");
+  if (!pf) pushLog("server", "\u062F\u0631\u0627\u0633\u0629 " + S.config.displaySymbol + " \u0643\u0627\u0645\u0644\u0629 \u2014 \u0642\u064A\u0627\u0633 \u0627\u0644\u062A\u0642\u0644\u0628 \u0648\u0627\u0644\u0633\u0628\u0631\u064A\u062F \u0648\u0627\u0644\u0646\u0634\u0627\u0637 \u0642\u0628\u0644 \u0623\u064A \u062F\u062E\u0648\u0644");
   S.huntAnchor = p;
   S.gridAnchor = S.position ? S.position.entry : p;
   S._flipAt = null;
@@ -6188,31 +6219,72 @@ function startBot() {
   emit();
   saveAll();
 }
-function pauseBot() {
-  requestHalt("\u062A\u0648\u0642\u064A\u062A \u0645\u0624\u0642\u062A");
-  if (R()) {
-    remoteCmd("pause").then(() => remoteSync());
-    return;
-  }
-  if (S.status !== "running") return;
-  S.status = "paused";
-  for (const l of S.grid) {
-    if (!l.reduceOnly && (l.status === "open" || l.status === "armed")) {
-      l.status = "cancelled";
-      l.exchangeOrderId = null;
-    } else if (l.reduceOnly && l.status === "open" && S.config.mode === "live") {
-      l.status = "armed";
-      l.exchangeOrderId = null;
+async function setHoldMode(on) {
+  S._holdAfterHarvest = !!on;
+  if (on) {
+    try {
+      await cancelEntryOrders();
+    } catch (e) {
+      logSwallow("holdCancel", e);
     }
+    if (S.position) {
+      pushLog("server", "\u23F8\uFE0F \u0645\u0624\u0642\u062A: \u0627\u0644\u0635\u0641\u0642\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 (" + S.config.displaySymbol + ") \u062A\u064F\u062F\u0627\u0631 \u062D\u062A\u0649 \u064A\u064F\u062C\u0646\u0649 \u0631\u0628\u062D\u0647\u0627 \u062B\u0645 \u064A\u062A\u0648\u0642\u0641 \u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u062A\u0644\u0642\u0627\u0626\u064A\u0627\u064B \u2014 \u0644\u0627 \u0635\u0641\u0642\u0627\u062A \u062C\u062F\u064A\u062F\u0629");
+    } else {
+      S.status = "stopped";
+      S._entriesEnabled = false;
+      S._holdAfterHarvest = false;
+      pushLog("server", "\u23F9 \u0645\u0624\u0642\u062A: \u0644\u0627 \u0635\u0641\u0642\u0629 \u0645\u0641\u062A\u0648\u062D\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u2014 \u062A\u0648\u0642\u0641 \u0645\u0628\u0627\u0634\u0631\u0629 (\u0627\u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644 \u0644\u0644\u0639\u0648\u062F\u0629)");
+    }
+  } else {
+    pushLog("server", "\u25B6\uFE0F \u0631\u064F\u0641\u0639 \u0627\u0644\u0645\u0624\u0642\u062A \u2014 \u0628\u0648\u0627\u0628\u0629 \u0627\u0644\u062F\u062E\u0648\u0644 \u062A\u0639\u0648\u062F \u0645\u0639 \xAB\u062A\u0634\u063A\u064A\u0644\xBB");
   }
-  if (S.config.mode === "live" && S.keys) exCancelAll(S.config.symbol).catch(() => {
-  });
-  pushLog("info", "\u0625\u064A\u0642\u0627\u0641 \u0645\u0624\u0642\u062A \u2014 \u0644\u0627 \u0635\u0641\u0642\u0627\u062A \u062C\u062F\u064A\u062F\u0629\u060C \u0627\u0644\u062C\u0646\u064A \u0645\u0633\u062A\u0645\u0631");
   emit();
   saveAll();
+  return { ok: true, hold: !!S._holdAfterHarvest };
+}
+async function pauseBot() {
+  if (R()) {
+    try {
+      await remoteCmd("pause");
+    } catch {
+    }
+    await remoteSync().catch(() => {
+    });
+    return;
+  }
+  await setHoldMode(true);
+}
+async function forceStopBot() {
+  requestHalt("\u0625\u064A\u0642\u0627\u0641 \u0641\u0648\u0631\u064A \u0645\u0646 \u0627\u0644\u0648\u0627\u062C\u0647\u0629");
+  S._holdAfterHarvest = false;
+  S._awaitFreshStudy = false;
+  const p = S.lastPrice || S.markPrice || (S.position ? S.position.entry : 0);
+  try {
+    if (S.position) await flattenAt(p > 0 ? p : S.position.entry || 0, "\u0625\u064A\u0642\u0627\u0641");
+  } catch (e) {
+    logSwallow("forceStopFlatten", e);
+  }
+  if (S.config.mode === "live" && S.keys) {
+    exCancelAll(S.config.symbol).catch(() => {
+    });
+    exCancelStops(S.config.symbol).catch(() => {
+    });
+    S._guardId = null;
+  }
+  S.status = "stopped";
+  S._entriesEnabled = false;
+  try {
+    clearNativeOngoing();
+  } catch (e) {
+    logSwallow("forceStopNotify", e);
+  }
+  pushLog("server", "\u23F9 \u0625\u064A\u0642\u0627\u0641 \u0641\u0648\u0631\u064A: \u0642\u064F\u0641\u0644\u062A \u0627\u0644\u0635\u0641\u0642\u0629 \u0628\u0633\u0639\u0631 \u0627\u0644\u0633\u0648\u0642 \u0641\u0648\u0631\u0627\u064B \u0648\u0623\u064F\u0644\u063A\u064A\u062A \u0643\u0644 \u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u2014 \u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0645\u062A\u0648\u0642\u0641 \u062A\u0627\u0645");
+  toast("\u062A\u0645 \u0627\u0644\u0625\u064A\u0642\u0627\u0641 \u0648\u0625\u063A\u0644\u0627\u0642 \u0643\u0644 \u0627\u0644\u0635\u0641\u0642\u0627\u062A");
+  emit();
+  saveAll();
+  return { ok: true, stopped: true };
 }
 async function stopBot() {
-  requestHalt("\u0625\u064A\u0642\u0627\u0641 \u0645\u0646 \u0627\u0644\u0648\u0627\u062C\u0647\u0629");
   if (R()) {
     try {
       await remoteCmd("stop");
@@ -6222,21 +6294,7 @@ async function stopBot() {
     });
     return;
   }
-  if (S.status === "idle") return;
-  S.status = "stopped";
-  S._entriesEnabled = false;
-  try {
-    if (S.config.mode === "live" && S.keys && S.position) {
-      await syncPositionTp();
-    }
-  } catch (e) {
-    logSwallow("stopTp", e);
-  }
-  clearNativeOngoing();
-  pushLog("info", "\u23F9 \u0625\u064A\u0642\u0627\u0641 \u0643\u0627\u0645\u0644 \u2014 \u0644\u0627 \u0623\u0648\u0627\u0645\u0631 \u062F\u062E\u0648\u0644 \u062C\u062F\u064A\u062F\u0629. \u0627\u0644\u0645\u0631\u0627\u0643\u0632 \u062A\u0628\u0642\u0649 \u0628\u0623\u0648\u0627\u0645\u0631 \u062C\u0646\u064A\u0647\u0627 \u0639\u0644\u0649 \u0627\u0644\u0645\u0646\u0635\u0629 (\u0644\u0627 \u0628\u064A\u0639 \u0628\u062E\u0633\u0627\u0631\u0629)");
-  toast("\u062A\u0645 \u0625\u064A\u0642\u0627\u0641 \u0627\u0644\u0628\u0648\u062A");
-  emit();
-  saveAll();
+  await forceStopBot();
 }
 function newCycle() {
   if (R()) {
@@ -6292,7 +6350,9 @@ function newCycle() {
     _posPeakNet: null,
     _spikeDone: false,
     _posNetPrev: null,
-    _spikePosId: null
+    _spikePosId: null,
+    _holdAfterHarvest: false,
+    _awaitFreshStudy: false
   });
   S.config = cfg;
   S.keys = keys;
@@ -6644,7 +6704,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.4";
+var SRV_VER = "AB-210-TRQ-1.1.5";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -6874,11 +6934,13 @@ var srv = createServer(async (req, res) => {
             startBot();
             return send(res, 200, { ok: true }, req);
           case "pause":
-            pauseBot();
-            return send(res, 200, { ok: true }, req);
+            await pauseBot();
+            return send(res, 200, { ok: true, hold: !!S._holdAfterHarvest }, req);
           case "stop":
             await stopBot();
             return send(res, 200, { ok: true }, req);
+          case "exEquity":
+            return send(res, 200, { ok: true, eq: S.exEquity != null ? S.exEquity : null, mode: S.config.mode, hasKeys: !!S.keys }, req);
           case "newCycle":
             newCycle();
             return send(res, 200, { ok: true }, req);
@@ -6969,13 +7031,33 @@ var srv = createServer(async (req, res) => {
       if (a === "stop" || a === "pause" || a === "start") {
         try {
           if (a === "start") clearHalt();
-          else requestHalt(a === "stop" ? "\u0625\u064A\u0642\u0627\u0641" : "\u062A\u0648\u0642\u0641");
         } catch {
         }
-        const payload2 = { action: a };
-        Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, payload2))).catch(() => {
-        });
-        return send(res, 200, { ok: true, instant: true, halted: a !== "start" }, req);
+        const rs = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", a === "stop" ? 25e3 : 8e3, { action: a })));
+        return send(res, 200, { ok: true, instant: a !== "start", results: rs.map((r) => !!(r && r.ok)) }, req);
+      }
+      if (a === "newCycle") {
+        try {
+          clearHalt();
+        } catch {
+        }
+        const stops = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 25e3, { action: "stop" })));
+        const resets = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 3e4, { action: "resetState" })));
+        let eq = 0;
+        for (let i = 1; i <= FLEET_N; i++) {
+          const r = await jfetch("http://127.0.0.1:" + (BASE_PORT + i) + "/cmd", 1e4, { action: "exEquity" });
+          if (r && Number(r.eq) > 0) {
+            eq = Number(r.eq);
+            break;
+          }
+        }
+        if (eq > 0) {
+          const share = Math.round(eq / FLEET_N * 100) / 100;
+          await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 15e3, { action: "syncBooks", totalEq: eq, share })));
+        }
+        const starts = await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "start" })));
+        pushLog("server", "\u{1F504} \u062F\u0648\u0631\u0629 \u062C\u062F\u064A\u062F\u0629: \u0642\u064F\u0641\u0644\u062A \u0627\u0644\u0635\u0641\u0642\u0627\u062A \u0641\u0648\u0631\u0627\u064B \xB7 \u0645\u064F\u0633\u062D\u062A \u0627\u0644\u0633\u062C\u0644\u0627\u062A \xB7 \u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0622\u0646 " + (eq > 0 ? "$" + eq.toFixed(2) + " (\u062E\u064F\u0645\u0633 \u0644\u0643\u0644 \u0623\u0633\u0637\u0648\u0644: $" + (Math.round(eq / FLEET_N * 100) / 100).toFixed(2) + ")" : "(\u0648\u0636\u0639 \u0648\u0631\u0642\u064A \u2014 \u0628\u0644\u0627 \u0645\u0646\u0635\u0629)") + " \u2014 \u0628\u062F\u0623\u062A \u062F\u0631\u0627\u0633\u0629 \u062C\u062F\u064A\u062F\u0629 \u0642\u0628\u0644 \u0623\u064A \u062F\u062E\u0648\u0644");
+        return send(res, 200, { ok: true, equity: eq, stopped: stops.map((r) => !!(r && r.ok)), results: resets.map((r) => !!(r && r.ok)), started: starts.map((r) => !!(r && r.ok)) }, req);
       }
       if (a === "haltState") return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === "resetAll") {
