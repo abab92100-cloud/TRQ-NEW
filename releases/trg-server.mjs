@@ -594,11 +594,12 @@ function dynamicTpNet() {
   target = Math.max(target, bal * spread / 100 * 2 + 0.05);
   if (hf) target = Math.min(target, 0.05);
   target = Math.min(target, Math.max(0.3, (S.config && S.config.cycleBalance || 0) * 0.015));
+  target = Math.max(target, bal * 24e-4);
+  target = Math.min(target, Math.max(0.3, (S.config && S.config.cycleBalance || 0) * 0.015));
+  if (hf) target = Math.min(target, 0.05);
   return Math.max(0.08, Math.round(target * 100) / 100);
 }
 function tpBase() {
-  const fix = Number(S.config.tpUsd);
-  if (fix > 0) return fix;
   return dynamicTpNet();
 }
 var clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1521,8 +1522,8 @@ function radarScore(x) {
     sc += 6;
     why.push("\u062A\u0630\u0628\u0630\u0628 \u062D\u0627\u062F");
   } else if (x.vol < 0.18) {
-    sc -= 14;
-    why.push("\u0633\u0648\u0642 \u0645\u064A\u062A");
+    sc -= 45;
+    why.push("\u0645\u064A\u062A\u0629 \u2014 \u0645\u0631\u0641\u0648\u0636\u0629 \u0628\u0641\u0644\u062A\u0631 \u0627\u0644\u062D\u064A\u0648\u064A\u0629 v1.1.7");
   } else {
     sc -= 10;
     why.push("\u062A\u0630\u0628\u0630\u0628 \u0648\u062D\u0634\u064A");
@@ -2474,7 +2475,6 @@ async function exAllPositions() {
   return (arr || []).filter((x) => Math.abs(Number(x.currentQty) || 0) > 1e-12);
 }
 async function profitTpPrice(sym, entry, qty, side, x) {
-  const tpU = Math.max(0.5, Number(S.config.tpUsd) || 1);
   const mark = Number(x && x.markPrice) || 0, pnlNow = Number(x && x.unrealisedPnl) || 0;
   let perPx = 0;
   if (mark > 0 && Math.abs(mark - entry) > 1e-12 && Math.abs(pnlNow) > 1e-9) perPx = Math.abs(pnlNow) / Math.abs(mark - entry);
@@ -2489,6 +2489,7 @@ async function profitTpPrice(sym, entry, qty, side, x) {
   if (!(perPx > 0)) perPx = qty * (S.multiplier || 1);
   if (!(tick > 0)) tick = S.tickSize || 1e-10;
   if (!(perPx > 0) || !(entry > 0)) return { price: 0, why: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0643\u0627\u0641\u064A\u0629" };
+  const tpU = Math.max(0.12, perPx * entry * 24e-4);
   const dPx = tpU * 1.3 / perPx;
   if (!(dPx > 0)) return { price: 0, why: "\u0645\u0633\u0627\u0641\u0629 \u0635\u0641\u0631\u064A\u0629" };
   if (dPx > entry * 0.25) return { price: 0, why: "\u0645\u0633\u0627\u0641\u0629 " + (dPx / entry * 100).toFixed(0) + "% \u063A\u064A\u0631 \u0645\u0646\u0637\u0642\u064A\u0629 \u2014 \u0645\u0631\u0641\u0648\u0636\u0629" };
@@ -2759,7 +2760,7 @@ function strategyFingerprint() {
     "step:" + Number(c.gridStepPct || 0),
     "lev:" + Number(c.leverage || 0),
     "lvls:" + Number(c.levels || 0),
-    "tp:" + (Number(c.tpUsd) > 0 ? "usd" + Number(c.tpUsd) : "net" + Number(c.tpNet || 0)),
+    "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
     c.ladderMode ? "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
@@ -5019,6 +5020,27 @@ async function patienceLimit(p) {
   S._postDisaster = Date.now();
   startStudy(false);
 }
+async function noProgressRotate(p) {
+  if (!p || S.status !== "running" || !S.position) return;
+  const pos = S.position;
+  const openedAt = Number(pos.openedAt) || 0;
+  if (!openedAt) return;
+  if (Date.now() - openedAt < 36e5) return;
+  if (S._rotAt && Date.now() - S._rotAt < 6e4) return;
+  S._rotAt = Date.now();
+  if (S._holdAfterHarvest || S._awaitFreshStudy) return;
+  const net = Number(pos.unrealized) || 0;
+  const tgt = tpBase();
+  if (!(tgt > 0)) return;
+  if (net > 0 && net / tgt >= 0.25) return;
+  const mult = S.multiplier || 1;
+  const feeRt = (pos.size || 0) * mult * Number(p || 0) * 8e-4;
+  if (!(net >= feeRt * 2)) return;
+  pushLog("server", "\u{1F504} \u0645\u0647\u0644\u0629 \u0627\u0644\u062A\u062F\u0648\u064A\u0631 v1.1.7: \u0633\u0627\u0639\u0629 \u0628\u0644\u0627 \u062A\u0642\u062F\u0645 \u0639\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0625\u063A\u0644\u0627\u0642 \u0628\u0633\u0644\u0627\u0645 \u0628\u0631\u0628\u062D " + fmtUsd(net) + " (\u064A\u063A\u0637\u064A \u0627\u0644\u0639\u0645\u0648\u0644\u062A\u064A\u0646) \u062B\u0645 \u0627\u0644\u062A\u062F\u0648\u064A\u0631 \u0644\u0639\u0645\u0644\u0629 \u0646\u0634\u0637\u0629 \u0628\u0639\u062F \u0627\u0644\u062F\u0631\u0627\u0633\u0629");
+  await flattenAt(p, "\u062A\u062F\u0648\u064A\u0631 \u0627\u0644\u062D\u064A\u0648\u064A\u0629");
+  S._postDisaster = Date.now();
+  startStudy(false);
+}
 async function circuitBreak(p) {
   if (!p || S.status !== "running") return;
   const limit = Math.max(LOSS_STOP_USD, (S.config.cycleBalance || 0) * 0.08);
@@ -5219,7 +5241,7 @@ async function flattenAt(p, source) {
       const gross = (Number(p) - S.position.entry) * dir2 * (S.position.size || 0) * mult;
       const fees = (S.position.size || 0) * mult * Number(p || 0) * 6e-4 * 2;
       const net = gross - fees;
-      const floor = Math.max(0.05, Number(S.config.tpNet || 0.1) * 0.9);
+      const floor = Math.max(0.05, Math.min(fees * 3, tpBase() * 0.9));
       if (net < floor) {
         if (!S._tpFloorAt || Date.now() - S._tpFloorAt > 12e4) {
           S._tpFloorAt = Date.now();
@@ -6062,6 +6084,7 @@ async function botTick() {
     }
     if (running && price > 0) {
       await patienceLimit(price);
+      await noProgressRotate(price);
       await circuitBreak(price);
       await escapeAdverse(price);
       harvestRipe(price);
@@ -6152,7 +6175,7 @@ function startBot() {
   } catch {
   }
   try {
-    pushLog("server", "\u2699\uFE0F \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0641\u0639\u0651\u0627\u0644\u0629: " + (S.config.mode === "live" ? "\u062D\u0642\u064A\u0642\u064A" : "\u0648\u0631\u0642\u064A") + " \xB7 " + S.config.displaySymbol + " \xB7 \u0631\u0627\u0641\u0639\u0629 " + S.config.leverage + "\xD7 \xB7 \u0645\u0633\u062A\u0648\u064A\u0627\u062A " + S.config.levels + " \xB7 \u062E\u0637\u0648\u0629 " + S.config.gridStepPct + "% \xB7 \u0635\u064A\u062F " + S.config.huntPct + "% \xB7 \u062C\u0646\u064A " + (Number(S.config.tpUsd) > 0 ? "\u062B\u0627\u0628\u062A " + S.config.tpUsd + "$" : "\u0645\u062F\u0631\u0648\u0633 " + S.config.tpNet + "$") + " \xB7 \u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629 " + S.config.cycleBalance + "$ \xB7 \u062D\u062F \u0627\u0644\u0623\u0648\u0627\u0645\u0631 " + (S._cycleMaxFills || 4));
+    pushLog("server", "\u2699\uFE0F \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0641\u0639\u0651\u0627\u0644\u0629: " + (S.config.mode === "live" ? "\u062D\u0642\u064A\u0642\u064A" : "\u0648\u0631\u0642\u064A") + " \xB7 " + S.config.displaySymbol + " \xB7 \u0631\u0627\u0641\u0639\u0629 " + S.config.leverage + "\xD7 \xB7 \u0645\u0633\u062A\u0648\u064A\u0627\u062A " + S.config.levels + " \xB7 \u062E\u0637\u0648\u0629 " + S.config.gridStepPct + "% \xB7 \u0635\u064A\u062F " + S.config.huntPct + "% \xB7 \u062C\u0646\u064A \u0646\u0633\u0628\u064A \u0645\u0646 \u0627\u0644\u062D\u062C\u0645 \u0627\u0644\u0645\u0646\u0641\u0630 + \u062D\u062F \u0623\u062F\u0646\u0649 3\xD7 \u0627\u0644\u0639\u0645\u0648\u0644\u0629 (v1.1.7) \xB7 \u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629 " + S.config.cycleBalance + "$ \xB7 \u062D\u062F \u0627\u0644\u0623\u0648\u0627\u0645\u0631 " + (S._cycleMaxFills || 4));
   } catch {
   }
   if (R()) {
@@ -6682,7 +6705,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.6";
+var SRV_VER = "AB-210-TRQ-1.1.7";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
