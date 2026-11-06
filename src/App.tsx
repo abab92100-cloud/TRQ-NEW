@@ -1,4 +1,4 @@
-(window as any).__FLEET_POLL_SLOW = true; // مزامنة الأسطول كل 2.5 ثانية (توفير بطارية)
+(window as any).__FLEET_POLL_SLOW = false; // مزامنة الأسطول كل 1.2 ثانية (استجابة أسرع — طلب المالك 6 نوفمبر)
 import { useEffect, useState } from 'react';
 import {
   S, subscribe, initEngine, remoteSync, detectRemoteServer, startBot, pauseBot, stopBot, newCycle,

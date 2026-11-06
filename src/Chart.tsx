@@ -26,7 +26,7 @@ const TFS = [
 const MAX_CANDLES = 90;
 const DATA_CAP = 220;
 const kCache = {};
-const cacheGet = k => { const e = kCache[k]; return (e && Date.now() - e.at < 90000) ? e.cs : []; };
+const cacheGet = k => { const e = kCache[k]; return e ? e.cs : []; }; // عرض فوري للكاش القديم عند التنقل ثم تحديث بالخلفية (load يجلب دائماً)
 const cacheSet = (k, cs) => { kCache[k] = { at: Date.now(), cs }; };
 
 export default function Chart() {
