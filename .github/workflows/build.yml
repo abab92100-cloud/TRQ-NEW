@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.8 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.8" --notes "صائد الارتداد المدروس: لا دخول في منتصف الهواء — الدخول عند مناطق ارتداد مختبرة من شموع 24 ساعة فقط (قيعان/قمم ارتد منها السعر فعلاً، والرئيسي بحجم 40% عند أقوى منطقة، والإضافات عند المناطق الأعمق المدروسة) — وخروج التعادل: تعليق 8 ساعات على عملة ميتة بخسارة لا تتجاوز 30 سنتاً يُغلى قرب التعادل ويُحرر الأسطول — ومقاومة الشموع ترفع الجني قبل نقاط الانعكاس" --latest 2>/dev/null || \
-            gh release upload v1.1.8 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.9 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.9" --notes "درس «أكثر من ساعة بلا صفقة»: عاصفة حصص المنصة (429) كانت تمنع جلب شموع الدراسة والمواصفات فيقف الصيد كلياً — الآن: تهدئة عالمية 30 ثانية بعد كل رفض مع تباعد منتظم بين الطلبات، وآخر دراسة ناجحة للمناطق (حتى 12 ساعة) تُستخدم عند التعثر فلا يتوقف الصيد، ومواصفات أي عملة تُوثق من قائمة العقود المركزية بنداء واحد بدل انتظار الجلب الفردي، ودوران البورة ينتظر حتى تنجح دراسة واحدة للمناطق" --latest 2>/dev/null || \
+            gh release upload v1.1.9 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

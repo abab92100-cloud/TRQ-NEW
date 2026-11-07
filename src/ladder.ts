@@ -74,13 +74,37 @@ const ZONE_MAX_DIST_PCT = 0.015;   // أبعد منطقة مقبولة عن ال
 const ZONE_MIN_DIST_PCT = 0.0006;  // أقرب من 0.06%: لا مساحة ربح حقيقية — تُرفض
 
 let _zoneCache: any = null; // {sym, short, at, zones} — إعادة دراسة المناطق كل ساعة
+let _zoneFails = 0;        // فشل جلب متتالٍ — يمدد فترة إعادة المحاولة تصاعدياً
 
 async function bounceZones(short: boolean): Promise<any[]> {
   const sym = S.config.symbol;
   if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 3600e3)
     return _zoneCache.zones;
-  const ks = await fetchKlines(sym, 15);
-  if (!ks || ks.length < 40) return [];
+  // ─── v1.1.9 درس «أكثر من ساعة بلا صفقة»: جلب الشموع كان يفشل بعاصفة
+  // حصص المنصة (429) فيقف الصيد كلياً بلا أمر واحد. الآن: آخر دراسة ناجحة
+  // (حتى 12 ساعة) تُستخدم مؤقتاً عند تعثر الجلب — مناطق الارتداد لا تتغير
+  // كل دقيقة، والصيد بمنطقة مدروسة قديمة أفضل ألف مرة من لا صيد إطلاقاً.
+  // المناطق المكسورة تُرشّح عند التسليح بحدودها الزمنية الحية لاحقاً ───
+  const staleOk = _zoneCache && _zoneCache.sym === sym && _zoneCache.short === short &&
+    _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 12 * 3600e3;
+  let ks: any[] = [];
+  try {
+    ks = await fetchKlines(sym, 15);
+    _zoneFails = 0;
+    S._zonesOkAt = Date.now(); // دراسة المناطق نجحت — البورة تُقاس من هنا
+  } catch (e) {
+    _zoneFails++;
+    const st = ladderState();
+    if (!st.fetchFailAt || Date.now() - st.fetchFailAt > 600000) { st.fetchFailAt = Date.now();
+      pushLog('server', '[ladder] تعذر جلب شموع الدراسة (حصص المنصة) — ' +
+        (staleOk ? 'الصيد يكمل بمناطق آخر دراسة ناجحة' : 'إعادة المحاولة بهدوء حتى يخف الحصص')); }
+    if (staleOk) return _zoneCache.zones;
+    return [];
+  }
+  if (!ks || ks.length < 40) {
+    if (staleOk) return _zoneCache.zones;
+    return [];
+  }
   const win = ks.slice(-96); // 96 شمعة × 15 د = 24 ساعة
   // فراكتال 5 شموع: قاع/قمة محلية مختبرة ارتد منها السعر فعلاً
   const pts: any[] = [];
@@ -89,7 +113,7 @@ async function bounceZones(short: boolean): Promise<any[]> {
     if (short) { if (win[i].h >= Math.max(...seg.map((k: any) => k.h))) pts.push({ px: win[i].h, i }); }
     else if (win[i].l <= Math.min(...seg.map((k: any) => k.l))) pts.push({ px: win[i].l, i });
   }
-  if (!pts.length) return [];
+  if (!pts.length) { _zoneCache = { sym, short, at: Date.now(), zones: [] }; S._zonesOkAt = Date.now(); return []; } // دراسة نجحت: لا قيعان/قمم — تُخزن النتيجة الفارغة ساعة
   pts.sort((a, b) => a.px - b.px);
   // عناقيد اللمس: النقاط المتقاربة منطقة واحدة، واللمسات تتجمع فيها
   const zones: any[] = [];
@@ -117,7 +141,7 @@ async function placeGroupBounce(g: number) {
     const px0 = S.lastPrice || (S.position ? S.position.entry : 0);
     if (!(px0 > 0)) return;
     if (!zones.length) {
-      if (!st.noZoneAt || Date.now() - st.noZoneAt > 60000) { st.noZoneAt = Date.now();
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 300000) { st.noZoneAt = Date.now();
         pushLog('server', '[ladder] 🎯 لا منطقة ارتداد مدروسة سليمة على ' + S.config.displaySymbol +
           ' — صيد هادئ: لا دخول في منتصف الهواء'); }
       return;
@@ -141,7 +165,7 @@ async function placeGroupBounce(g: number) {
     pool.sort((a: any, b: any) => (b.touch - a.touch) || (Math.abs(a.px - px0) - Math.abs(b.px - px0)));
     const chosen = pool.slice(0, GROUP_SIZE);
     if (!chosen.length) {
-      if (!st.noZoneAt || Date.now() - st.noZoneAt > 60000) { st.noZoneAt = Date.now();
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 300000) { st.noZoneAt = Date.now();
         pushLog('server', '[ladder] 🎯 لا منطقة سليمة قريبة كافية للتسليح على ' + S.config.displaySymbol + ' — انتظار الصيد'); }
       return;
     }
@@ -171,7 +195,7 @@ async function placeGroupBounce(g: number) {
         ' أوامر عند مناطق ارتداد مدروسة — الرئيسي ' + fmtPx(chosen[0].px) + ' (' + chosen[0].touch +
         ' لمسات) بحجم 40%، والإضافات أعمق عند المناطق المختبرة فقط');
       emit();
-    } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 60000) { st.noZoneAt = Date.now();
+    } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 300000) { st.noZoneAt = Date.now();
       pushLog('server', '[ladder] 🎯 أحجام المناطق المدروسة أصغر من حد المنصة — صيد هادئ'); }
   } catch (e) {
     if (!st.fetchFailAt || Date.now() - st.fetchFailAt > 60000) { st.fetchFailAt = Date.now();
@@ -268,9 +292,12 @@ export function ladderTick(price: number) {
   // ─── v1.1.8 صائد الارتداد: لا أوامر مسلحة (لا منطقة ضمن النطاق أو فشل
   // جلب الشموع) — إعادة محاولة مرة كل 60 ث لا كل نبضة، وسحب صلاحية مناطق
   // بلا أي تنفيذ بعد ساعة: تحديث الصيد بدل التعليق على منطقة بايتة ───
+  // v1.1.9: إعادة المحاولة تتراجع تصاعدياً كلما طال تعثر الجلب (60ث → 2د → 5د)
+  // — الطرق على باب مُقفل يطيل الحصص، والانتظار المنظم يفكه أسرع
+  const retryMs = _zoneFails >= 4 ? 300000 : (_zoneFails >= 2 ? 120000 : 60000);
   if (bounceOn()) {
     if (!cur.length) {
-      if (!stNow.lastTry || Date.now() - stNow.lastTry > 60000) {
+      if (!stNow.lastTry || Date.now() - stNow.lastTry > retryMs) {
         stNow.lastTry = Date.now();
         placeGroup(stNow.group, price);
       }
