@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.9 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.9" --notes "درس «أكثر من ساعة بلا صفقة»: عاصفة حصص المنصة (429) كانت تمنع جلب شموع الدراسة والمواصفات فيقف الصيد كلياً — الآن: تهدئة عالمية 30 ثانية بعد كل رفض مع تباعد منتظم بين الطلبات، وآخر دراسة ناجحة للمناطق (حتى 12 ساعة) تُستخدم عند التعثر فلا يتوقف الصيد، ومواصفات أي عملة تُوثق من قائمة العقود المركزية بنداء واحد بدل انتظار الجلب الفردي، ودوران البورة ينتظر حتى تنجح دراسة واحدة للمناطق" --latest 2>/dev/null || \
-            gh release upload v1.1.9 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.10 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.10" --notes "درس «الشارت ثقيل والفريم لا يفتح ولا صفقة»: شموع الشارت أصبحت تُجلب عبر السيرفر المحلي بكاش مشترك وأولوية على المسح الشامل، ونسخة قديمة تُعرض عند رفض المنصة بدل شاشة انتظار — والرادار صار مشتركاً بين المحركات الخمسة: مسح واحد يخدم الأسطول كله بدل خمسة مسوح (خُمس طلبات المنصة) — ورسم الشارت صار مرة واحدة لكل إطار عرض بدل رسم متكرر" --latest 2>/dev/null || \
+            gh release upload v1.1.10 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -11,7 +11,7 @@
 //   وكل جزء يُوزَّع على أوامره الأربعة تصاعدياً ×1.25 (الأمر الأول أصغرها دائماً).
 // · الدخول منظم: لا مجموعة أولى إلا عبر بوابة المحرك entryGateOpen()
 //   (الدراسة + دور التسلسل + ملكية العملة + قاعدة الخمسة) — لا فتح فوضوي.
-import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen, fetchKlines } from './engine';
+import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen, fetchKlines, fetchKlinesCached } from './engine';
 
 const GROUP_SIZE = 4;
 const SPACINGS = [0.30, 0.40, 0.50, 0.60, 0.70];                    // % بين كل أمر والذي يليه داخل المجموعة
@@ -89,7 +89,7 @@ async function bounceZones(short: boolean): Promise<any[]> {
     _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 12 * 3600e3;
   let ks: any[] = [];
   try {
-    ks = await fetchKlines(sym, 15);
+    ks = await fetchKlinesCached(sym, 15); // v1.1.10: كاش مشترك + نسخة قديمة عند رفض المنصة — الصيد لا يقف
     _zoneFails = 0;
     S._zonesOkAt = Date.now(); // دراسة المناطق نجحت — البورة تُقاس من هنا
   } catch (e) {

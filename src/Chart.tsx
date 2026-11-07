@@ -3,7 +3,7 @@
    خط المتوسط · خط التصفية · السعر الحي
    ================================================================ */
 import { useEffect, useRef, useState } from 'react';
-import { S, fetchKlines, fmtPx } from './engine';
+import { S, chartKlines, fmtPx } from './engine';
 declare global {
   interface Window {
     Capacitor?: any;
@@ -49,7 +49,10 @@ export default function Chart() {
     const load = () => {
       if (st.loading) return;
       st.loading = true;
-      fetchKlines(S.config.symbol, gran).then(k => {
+      /* v1.1.10: الشموع تُجلب عبر السيرفر المحلي (كاش مشترك + أولوية +
+         نسخة قديمة عند رفض المنصة) — انتقال الفريم والعملة صار فورياً
+         بدل انتظار ظهر عاصفة الحصص على شبكة الجوال مباشرة */
+      chartKlines(S.config.symbol, gran).then(k => {
         if (!alive) return;
         st.loading = false;
         if (!k.length) throw new Error('empty');
@@ -70,8 +73,8 @@ export default function Chart() {
     return () => { alive = false; clearTimeout(t); clearInterval(iv); };
   }, [S.config.symbol, gran]);
 
-  useEffect(() => {
-    if (typeof document !== 'undefined' && document.hidden) return;
+  const drawRaf = useRef<any>(null);
+  const drawNow = () => {
     const cv = ref.current; if (!cv) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = cv.clientWidth, H = cv.clientHeight; if (!W) return;
@@ -159,8 +162,18 @@ export default function Chart() {
     const ft = t => { const d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
     x.textAlign = 'left'; x.fillText(ft(candles[0].t), 6, H - 4);
     x.textAlign = 'right'; x.fillText(ft(candles[candles.length - 1].t), W - AXIS - 4, H - 4);
+  
+  };
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    /* v1.1.10 تخفيف ثقل الشارت: رسم واحد لكل إطار عرض (rAF) مهما
+       تكررت نبضات الحالة داخله — بدل رسم كامل مع كل تحديث */
+    if (drawRaf.current) return;
+    drawRaf.current = (typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : (f: any) => setTimeout(f, 16))(() => {
+      drawRaf.current = null;
+      try { drawNow(); } catch (e) { }
+    });
   });
-
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 6, direction: 'ltr', justifyContent: 'flex-end' }}>

@@ -15,9 +15,10 @@ import {
   saveCfg, saveKeys, clearKeys, scanRadar, pushLog, liveSync, repairAccount,
   strategyFingerprint, alignStrategy, gridStatus, ensureGroupFour, cancelEntryOrders, cleanStart, enableEntries, syncBooks,
   requestHalt, clearHalt, haltRequested, setFleetGate, resetState,
+  fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.9';
+const SRV_VER = 'AB-210-TRQ-1.1.10';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -135,6 +136,26 @@ async function broadcastFleetGate() {
 }
 setInterval(() => { broadcastFleetGate().catch(() => { }); }, 5000).unref?.();
 
+/* ─── v1.1.10 رادار مشترك (درس عاصفة الحصص 429): كل مسح شامل = 61 نداء
+   للمنصة — خمسة محركات تمسح كل دورة تُغرق عنوان الجهاز فتُحجب الطلبات
+   كلها. الآن: أحدث مسح أنجزه أي محرك يُبَث للجميع (محلياً عبر localhost)،
+   والمحرك الذي يصل لقراره يجد راداراً طازجاً (أقل من دقيقتين) فلا يمسح.
+   النتيجة: مسح واحد كل دورة بدل خمسة — خُمس الطلبات ─── */
+let _lastSharedRadarAt = 0;
+async function shareRadar() {
+  let best: any = null;
+  for (let i = 1; i <= FLEET_N; i++) {
+    const r = slotStates[i] && (slotStates[i] as any)._radarFull;
+    if (r && r.list && r.list.length && r.at > 0 && (!best || r.at > best.at)) best = r;
+  }
+  if (!best || Date.now() - best.at > 180000) return;       // لا مسح طازج كافٍ
+  if (best.at <= _lastSharedRadarAt) return;                 // بُث بالفعل
+  _lastSharedRadarAt = best.at;
+  await Promise.all(Array.from({ length: FLEET_N }, (_, i) =>
+    jfetch('http://127.0.0.1:' + (BASE_PORT + 1 + i) + '/cmd', 8000, { action: 'sharedRadar', radar: best }).catch(() => { })));
+}
+setInterval(() => { shareRadar().catch(() => { }); }, 30000).unref?.();
+
 function mergedState(selIn = 0) {
   const live: any[] = [];
   for (let i = 1; i <= FLEET_N; i++) if (slotStates[i]) live.push(slotStates[i]);
@@ -230,6 +251,11 @@ const srv = createServer(async (req, res) => {
           case 'syncBooks': return send(res,200, syncBooks(j.totalEq, j.share), req);
           case 'resetState': return send(res,200, resetState(), req);
           case 'fleetGate': return send(res,200, setFleetGate(j.opened, SLOT), req);
+          case 'klines': { // v1.1.10: شموع الشارت عبر السيرفر — كاش مشترك + أولوية
+            try { const ks = await fetchKlinesCached(String(j.symbol || S.config.symbol), Number(j.gran) || 15);
+              return send(res, 200, { ok: true, klines: ks }, req); }
+            catch (e: any) { return send(res, 200, { ok: false, error: String(e && e.message || e) }, req); } }
+          case 'sharedRadar': return send(res, 200, { ok: sharedRadarApply(j.radar) }, req);
           case 'ensureFour': { const need=ensureGroupFour(); return send(res, 200, { ok:true, need }, req); }
           default: return send(res, 400, { ok: false, error: 'إجراء غير معروف: ' + a }, req);
         }
@@ -315,6 +341,14 @@ const srv = createServer(async (req, res) => {
           void stops; void resets; void starts;
         })().catch(() => { }).then(() => { (globalThis as any).__cycleBusy = false; });
         return send(res, 200, { ok: true, accepted: true }, req);
+      }
+      if (a === 'klines') { // v1.1.10: شموع الشارت تمر عبر السيرفر لا من شبكة الجوال مباشرة
+        let slot = 1;
+        for (let i = 1; i <= FLEET_N; i++)
+          if (slotStates[i] && slotStates[i].config && slotStates[i].config.symbol === j.symbol) { slot = i; break; }
+        try { const r = await jfetch('http://127.0.0.1:' + (BASE_PORT + slot) + '/cmd', 8000, { action: 'klines', symbol: j.symbol, gran: j.gran });
+          return send(res, 200, r || { ok: false }, req); }
+        catch (e: any) { return send(res, 200, { ok: false, error: String((e && e.message) || e) }, req); }
       }
       if (a === 'haltState') return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === 'resetAll') {
