@@ -542,7 +542,7 @@ async function placeGroupBounce(g) {
     for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
       const z = chosen[k];
       const mult = S.multiplier || 1;
-      let q = part * fr[k] / (mult * z.px);
+      let q = part * fr[k] * (k === 0 ? entryBoost() : 1) / (mult * z.px);
       q = capEntryQty(q, z.px);
       if (!(q >= 1)) continue;
       S.grid.push({
@@ -618,7 +618,7 @@ function placeGroup(g, anchor) {
     const px = short ? anchor * (1 + k * sp) : anchor * (1 - k * sp);
     if (!(px > 0)) continue;
     const mult = S.multiplier || 1;
-    let q = budgets[k] / (mult * px);
+    let q = budgets[k] * (k === 0 ? entryBoost() : 1) / (mult * px);
     q = capEntryQty(q, px);
     if (!(q >= 1)) continue;
     S.grid.push({
@@ -1183,8 +1183,10 @@ var S = {
     ladderMode: true,
     bounceMode: true,
     // صائد الارتداد المدروس (أمر المالك 7 نوفمبر): دخول عند مناطق ارتداد مختبرة من الشموع فقط — لا دخول في منتصف الهواء
-    seqMode: false
+    seqMode: false,
     // الأساطيل حرة (أمر المالك 6 نوفمبر): كل محرك يضع منطقة دخوله فور اكتمال دراسته — لا انتظار على أسطول آخر
+    entryBoost: 3
+    // قوة الدخول الأولى (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة بحجم مضاعف ×3 — قابل للضبط 1-6 من الإعدادات
   },
   status: "idle",
   heartbeat: 0,
@@ -2991,7 +2993,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.10 waits 2h/3h/4h/4h main40% studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.11 waits 2h/3h/4h/4h main40% boost3 studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3693,9 +3695,12 @@ function resolveDirection(now) {
   } else if (bias.direction === prev) S.config.direction = bias.direction;
   return S.config.direction;
 }
+function entryBoost() {
+  return clamp(Math.round(Number(S.config && S.config.entryBoost) || 3), 1, 6);
+}
 function contractsForLevel(p) {
   const q = levelQtys(p, effLevels());
-  return capEntryQty(q.length ? q[0] : 1, p);
+  return capEntryQty(q.length ? q[0] * entryBoost() : 1, p);
 }
 function effLevels() {
   const c = S.config;
@@ -6740,6 +6745,7 @@ function saveCfg(v) {
   if (v.tpNet != null && v.tpNet !== "") S.config.tpNet = clamp(+v.tpNet || TP_BASE_NET, 0.03, 50);
   if (v.tpUsd != null && v.tpUsd !== "") S.config.tpUsd = clamp(+v.tpUsd || 0, 0, 1e3);
   S.config.cycleBalance = Math.max(1, +v.cycleBalance || 100);
+  if (v.entryBoost != null && v.entryBoost !== "") S.config.entryBoost = clamp(Math.round(+v.entryBoost) || 3, 1, 6);
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
@@ -7021,7 +7027,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.10";
+var SRV_VER = "AB-210-TRQ-1.1.11";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
