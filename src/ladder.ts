@@ -11,7 +11,7 @@
 //   وكل جزء يُوزَّع على أوامره الأربعة تصاعدياً ×1.25 (الأمر الأول أصغرها دائماً).
 // · الدخول منظم: لا مجموعة أولى إلا عبر بوابة المحرك entryGateOpen()
 //   (الدراسة + دور التسلسل + ملكية العملة + قاعدة الخمسة) — لا فتح فوضوي.
-import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen } from './engine';
+import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen, fetchKlines } from './engine';
 
 const GROUP_SIZE = 4;
 const SPACINGS = [0.30, 0.40, 0.50, 0.60, 0.70];                    // % بين كل أمر والذي يليه داخل المجموعة
@@ -21,7 +21,7 @@ const ASC = 1.25;                                                    // تصاع
 export function ladderOn() { return !!(S.config && S.config.ladderMode); }
 
 function ladderState() {
-  if (!S._ladder) S._ladder = { active: false, group: 0, anchor: 0, waitUntil: 0, winExtreme: 0, harvestAtStart: 0, symbol: '', maxed: false };
+  if (!S._ladder) S._ladder = { active: false, group: 0, anchor: 0, waitUntil: 0, winExtreme: 0, harvestAtStart: 0, symbol: '', maxed: false, placing: false, lastTry: 0, placedAt: 0, noZoneAt: 0, fetchFailAt: 0 };
   return S._ladder;
 }
 // اتجاه الصفقة الفعلي: المركز القائم أولاً (استئناف)، وإلا اتجاه الدراسة
@@ -62,6 +62,123 @@ function resetLadder(reason: string) {
   if (reason) pushLog('server', '[ladder] ' + reason);
 }
 
+// ═══════════ v1.1.8 صائد الارتداد المدروس (أمر المالك 7 نوفمبر) ═══════════
+// لا دخول في منتصف الهواء: تُدرس شموع 15 دقيقة (آخر 24 ساعة) وتُستخرج مناطق
+// الارتداد المختبرة — قيعان ارتد منها السعر فعلاً (لونغ) / قمم انعكست عنها
+// (شورت). الأمر الرئيسي (الأضخم: 40%) عند أقرب منطقة قوية، والإضافات عند
+// المناطق الأعمق المدروسة فقط. لا منطقة سليمة = لا أمر عشوائي أبداً ───
+export function bounceOn() { return S.config && S.config.bounceMode !== false; }
+
+const ZONE_CLUSTER_PCT = 0.0025;   // قيعان/قمم ضمن 0.25% = منطقة واحدة (اللمسات تتجمع)
+const ZONE_MAX_DIST_PCT = 0.015;   // أبعد منطقة مقبولة عن السعر: 1.5% (صيد قريب سريع)
+const ZONE_MIN_DIST_PCT = 0.0006;  // أقرب من 0.06%: لا مساحة ربح حقيقية — تُرفض
+
+let _zoneCache: any = null; // {sym, short, at, zones} — إعادة دراسة المناطق كل ساعة
+
+async function bounceZones(short: boolean): Promise<any[]> {
+  const sym = S.config.symbol;
+  if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 3600e3)
+    return _zoneCache.zones;
+  const ks = await fetchKlines(sym, 15);
+  if (!ks || ks.length < 40) return [];
+  const win = ks.slice(-96); // 96 شمعة × 15 د = 24 ساعة
+  // فراكتال 5 شموع: قاع/قمة محلية مختبرة ارتد منها السعر فعلاً
+  const pts: any[] = [];
+  for (let i = 2; i < win.length - 2; i++) {
+    const seg = win.slice(i - 2, i + 3);
+    if (short) { if (win[i].h >= Math.max(...seg.map((k: any) => k.h))) pts.push({ px: win[i].h, i }); }
+    else if (win[i].l <= Math.min(...seg.map((k: any) => k.l))) pts.push({ px: win[i].l, i });
+  }
+  if (!pts.length) return [];
+  pts.sort((a, b) => a.px - b.px);
+  // عناقيد اللمس: النقاط المتقاربة منطقة واحدة، واللمسات تتجمع فيها
+  const zones: any[] = [];
+  for (const p of pts) {
+    const last = zones[zones.length - 1];
+    if (last && Math.abs(p.px - last.px) / last.px <= ZONE_CLUSTER_PCT) {
+      last.touch++; last.lastI = Math.max(last.lastI, p.i);
+      last.px = short ? Math.max(last.px, p.px) : Math.min(last.px, p.px);
+    } else zones.push({ px: p.px, touch: 1, lastI: p.i });
+  }
+  // المنطقة المكسورة بعد آخر لمسة (إغلاق اخترق 0.3%) مرفوضة — لا شراء تحت قاع منهار
+  const alive = zones.filter((z: any) => !win.some((k: any, j: number) => j > z.lastI &&
+    (short ? k.c > z.px * 1.003 : k.c < z.px * 0.997)));
+  _zoneCache = { sym, short, at: Date.now(), zones: alive };
+  return alive;
+}
+
+async function placeGroupBounce(g: number) {
+  const st = ladderState();
+  if (st.placing) return;
+  st.placing = true;
+  try {
+    const short = ladderShort();
+    const zones = await bounceZones(short);
+    const px0 = S.lastPrice || (S.position ? S.position.entry : 0);
+    if (!(px0 > 0)) return;
+    if (!zones.length) {
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 60000) { st.noZoneAt = Date.now();
+        pushLog('server', '[ladder] 🎯 لا منطقة ارتداد مدروسة سليمة على ' + S.config.displaySymbol +
+          ' — صيد هادئ: لا دخول في منتصف الهواء'); }
+      return;
+    }
+    const dir = short ? 1 : -1; // منطقة الربح فوق السعر (شورت) / تحته (لونغ)
+    let pool = zones.filter((z: any) => {
+      const d = ((z.px - px0) / px0) * dir;
+      return d >= ZONE_MIN_DIST_PCT && d <= ZONE_MAX_DIST_PCT;
+    });
+    // المجموعات الأعمق (g>0): مناطق خلف متوسط المركز الحالي فقط — انعكاس مدروس
+    const avg = S.position ? S.position.entry : 0;
+    if (g > 0 && avg > 0) pool = pool.filter((z: any) => (z.px - avg) * dir > 0);
+    // درع التصفية (قاعدة مقدسة): لا أمر يدخل نطاق 2% من سعر التصفية المعلن
+    const exl = S.exLiqPrice || 0;
+    if (exl > 0) pool = pool.filter((z: any) => short ? z.px < exl * 0.98 : z.px > exl * 1.02);
+    // لا تكديس: منطقة بمحاذاة أمر قائم (ضمن 0.15%) تُتخطى — عمق مدروس لا عشوائي
+    const existing = (S.grid || []).filter((l: any) => l.origin === 'ladder' &&
+      (l.status === 'armed' || l.status === 'open' || l.filledAt));
+    pool = pool.filter((z: any) => !existing.some((l: any) => l.price > 0 && Math.abs(l.price - z.px) / z.px < 0.0015));
+    // الأقوى أولاً (لمسات أكثر ثم الأقرب) — الرئيسي عند أقوى منطقة قريبة
+    pool.sort((a: any, b: any) => (b.touch - a.touch) || (Math.abs(a.px - px0) - Math.abs(b.px - px0)));
+    const chosen = pool.slice(0, GROUP_SIZE);
+    if (!chosen.length) {
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 60000) { st.noZoneAt = Date.now();
+        pushLog('server', '[ladder] 🎯 لا منطقة سليمة قريبة كافية للتسليح على ' + S.config.displaySymbol + ' — انتظار الصيد'); }
+      return;
+    }
+    const part = ladderParts()[Math.min(g, 4)];
+    const fr = [0.40, 0.25, 0.20, 0.15]; // الرئيسي الأضخم عند أفضل نقطة (أمر المالك)
+    const side = short ? 'sell' : 'buy';
+    let placed = 0;
+    for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
+      const z = chosen[k];
+      const mult = S.multiplier || 1;
+      let q = (part * fr[k]) / (mult * z.px);
+      q = capEntryQty(q, z.px);
+      if (!(q >= 1)) continue;
+      S.grid.push({
+        id: 'lb' + g + '_' + k + '_' + Date.now().toString(36),
+        clientOid: 'lbo' + g + '_' + k + '_' + Math.random().toString(36).slice(2, 8),
+        side, price: z.px, qty: q,
+        status: 'armed', reduceOnly: false, exchangeOrderId: null, filledAt: null,
+        origin: 'ladder', lane: 'ladder', ladderGroup: g, createdAt: Date.now(),
+      });
+      placed++;
+    }
+    if (placed) {
+      S.grid.sort((a, b) => b.price - a.price);
+      st.placedAt = Date.now();
+      pushLog('server', '[ladder] 🎯 صيد المجموعة ' + (g + 1) + '/5 على ' + S.config.displaySymbol + ': ' + placed +
+        ' أوامر عند مناطق ارتداد مدروسة — الرئيسي ' + fmtPx(chosen[0].px) + ' (' + chosen[0].touch +
+        ' لمسات) بحجم 40%، والإضافات أعمق عند المناطق المختبرة فقط');
+      emit();
+    } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 60000) { st.noZoneAt = Date.now();
+      pushLog('server', '[ladder] 🎯 أحجام المناطق المدروسة أصغر من حد المنصة — صيد هادئ'); }
+  } catch (e) {
+    if (!st.fetchFailAt || Date.now() - st.fetchFailAt > 60000) { st.fetchFailAt = Date.now();
+      pushLog('server', '[ladder] تعذر جلب شموع الدراسة — إعادة المحاولة خلال دقيقة'); }
+  } finally { st.placing = false; }
+}
+
 function placeGroup(g: number, anchor: number) {
   // ─── بوابة المواصفات (درس التلوث): لا تسليح أي أمر قبل توثيق مضاعف عقد
   // العملة الحالية نفسها — مضاعف قديم=1 على عملة كـ PEPE (عقدها 520 ألف
@@ -89,6 +206,9 @@ function placeGroup(g: number, anchor: number) {
       return;
     }
   }
+  // ─── v1.1.8 صائد الارتداد: التسليح عند المناطق المدروسة فقط (فرع المالك)،
+  // التباعد الثابت القديم يبقى كوضع احتياطي حرفياً عند إطفاء bounceMode ───
+  if (bounceOn()) { placeGroupBounce(g); return; }
   const short = ladderShort();
   const side = short ? 'sell' : 'buy';
   const sp = SPACINGS[Math.min(g, SPACINGS.length - 1)] / 100;
@@ -111,6 +231,7 @@ function placeGroup(g: number, anchor: number) {
     placed++;
   }
   S.grid.sort((a, b) => b.price - a.price);
+  ladderState().placedAt = Date.now();
   pushLog('server', '[ladder] المجموعة ' + (g + 1) + '/5 من ' + fmtPx(anchor) + ' — تباعد ' +
     (sp * 100).toFixed(2) + '% — ' + placed + ' أوامر، أحجام تصاعدية ×1.25 (الأول أصغرها)');
 }
@@ -144,6 +265,23 @@ export function ladderTick(price: number) {
     emit(); return;
   }
   const cur = groupOrders(stNow.group);
+  // ─── v1.1.8 صائد الارتداد: لا أوامر مسلحة (لا منطقة ضمن النطاق أو فشل
+  // جلب الشموع) — إعادة محاولة مرة كل 60 ث لا كل نبضة، وسحب صلاحية مناطق
+  // بلا أي تنفيذ بعد ساعة: تحديث الصيد بدل التعليق على منطقة بايتة ───
+  if (bounceOn()) {
+    if (!cur.length) {
+      if (!stNow.lastTry || Date.now() - stNow.lastTry > 60000) {
+        stNow.lastTry = Date.now();
+        placeGroup(stNow.group, price);
+      }
+      return;
+    }
+    if (stNow.placedAt && Date.now() - stNow.placedAt > 3600e3 &&
+        cur.every(l => l.status === 'armed' && !l.filledAt)) {
+      resetLadder('انتهت صلاحية منطقة الصيد بلا تنفيذ — تحديث المناطق والدراسة');
+      emit(); return;
+    }
+  }
   // ─── إصلاح الجمود: انقلاب الاتجاه/فيتو الخطر ألغى أوامر المجموعة كلها
   // وبلا مركز قائم — المجموعة تُعاد تسليحها عند السعر الحالي (مرة كل 30 ث
   // كحد أقصى) وإلا وقف السلم للأبد وحجز دور التسلسل على الأسطول ───
@@ -153,10 +291,13 @@ export function ladderTick(price: number) {
       placeGroup(stNow.group, price); emit(); return; }
     return;
   }
-  if (cur.length < GROUP_SIZE) return;                       // المجموعة لم تُسلّح كاملة بعد
+  // v1.1.8: في وضع الصيد قد تسلّح المجموعة أقل من 4 أوامر (عدد المناطق
+  // المدروسة المتاحة فقط) — اكتمال المجموعة = نفاذ كل المسلح منها
+  const total = bounceOn() ? (cur.length || GROUP_SIZE) : GROUP_SIZE;
+  if (cur.length < Math.max(1, total)) return;           // المجموعة لم تُسلّح كاملة بعد
   // «تم دخول الأوامر» = نُفِّذت فعلاً (filled) — لا يكفي وجودها على المنصة
   const filled = cur.filter(l => l.status === 'filled' || l.filledAt).length;
-  if (filled < GROUP_SIZE) return;                          // لم تُنفَّذ الأربعة بعد — لا انتظار
+  if (filled < total) return;                          // لم تُنفَّذ المسلحة بعد — لا انتظار
   if (!stNow.waitUntil) {
     const w = WAITS_MS[Math.min(stNow.group, WAITS_MS.length - 1)];
     stNow.waitUntil = Date.now() + w;
