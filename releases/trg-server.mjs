@@ -447,12 +447,31 @@ var ZONE_CLUSTER_PCT = 25e-4;
 var ZONE_MAX_DIST_PCT = 0.015;
 var ZONE_MIN_DIST_PCT = 6e-4;
 var _zoneCache = null;
+var _zoneFails = 0;
 async function bounceZones(short) {
   const sym = S.config.symbol;
   if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 36e5)
     return _zoneCache.zones;
-  const ks = await fetchKlines(sym, 15);
-  if (!ks || ks.length < 40) return [];
+  const staleOk = _zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 12 * 36e5;
+  let ks = [];
+  try {
+    ks = await fetchKlines(sym, 15);
+    _zoneFails = 0;
+    S._zonesOkAt = Date.now();
+  } catch (e) {
+    _zoneFails++;
+    const st = ladderState();
+    if (!st.fetchFailAt || Date.now() - st.fetchFailAt > 6e5) {
+      st.fetchFailAt = Date.now();
+      pushLog("server", "[ladder] \u062A\u0639\u0630\u0631 \u062C\u0644\u0628 \u0634\u0645\u0648\u0639 \u0627\u0644\u062F\u0631\u0627\u0633\u0629 (\u062D\u0635\u0635 \u0627\u0644\u0645\u0646\u0635\u0629) \u2014 " + (staleOk ? "\u0627\u0644\u0635\u064A\u062F \u064A\u0643\u0645\u0644 \u0628\u0645\u0646\u0627\u0637\u0642 \u0622\u062E\u0631 \u062F\u0631\u0627\u0633\u0629 \u0646\u0627\u062C\u062D\u0629" : "\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0647\u062F\u0648\u0621 \u062D\u062A\u0649 \u064A\u062E\u0641 \u0627\u0644\u062D\u0635\u0635"));
+    }
+    if (staleOk) return _zoneCache.zones;
+    return [];
+  }
+  if (!ks || ks.length < 40) {
+    if (staleOk) return _zoneCache.zones;
+    return [];
+  }
   const win = ks.slice(-96);
   const pts = [];
   for (let i = 2; i < win.length - 2; i++) {
@@ -461,7 +480,11 @@ async function bounceZones(short) {
       if (win[i].h >= Math.max(...seg.map((k) => k.h))) pts.push({ px: win[i].h, i });
     } else if (win[i].l <= Math.min(...seg.map((k) => k.l))) pts.push({ px: win[i].l, i });
   }
-  if (!pts.length) return [];
+  if (!pts.length) {
+    _zoneCache = { sym, short, at: Date.now(), zones: [] };
+    S._zonesOkAt = Date.now();
+    return [];
+  }
   pts.sort((a, b) => a.px - b.px);
   const zones = [];
   for (const p of pts) {
@@ -486,7 +509,7 @@ async function placeGroupBounce(g) {
     const px0 = S.lastPrice || (S.position ? S.position.entry : 0);
     if (!(px0 > 0)) return;
     if (!zones.length) {
-      if (!st.noZoneAt || Date.now() - st.noZoneAt > 6e4) {
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 3e5) {
         st.noZoneAt = Date.now();
         pushLog("server", "[ladder] \u{1F3AF} \u0644\u0627 \u0645\u0646\u0637\u0642\u0629 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062F\u0631\u0648\u0633\u0629 \u0633\u0644\u064A\u0645\u0629 \u0639\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0635\u064A\u062F \u0647\u0627\u062F\u0626: \u0644\u0627 \u062F\u062E\u0648\u0644 \u0641\u064A \u0645\u0646\u062A\u0635\u0641 \u0627\u0644\u0647\u0648\u0627\u0621");
       }
@@ -506,7 +529,7 @@ async function placeGroupBounce(g) {
     pool.sort((a, b) => b.touch - a.touch || Math.abs(a.px - px0) - Math.abs(b.px - px0));
     const chosen = pool.slice(0, GROUP_SIZE);
     if (!chosen.length) {
-      if (!st.noZoneAt || Date.now() - st.noZoneAt > 6e4) {
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 3e5) {
         st.noZoneAt = Date.now();
         pushLog("server", "[ladder] \u{1F3AF} \u0644\u0627 \u0645\u0646\u0637\u0642\u0629 \u0633\u0644\u064A\u0645\u0629 \u0642\u0631\u064A\u0628\u0629 \u0643\u0627\u0641\u064A\u0629 \u0644\u0644\u062A\u0633\u0644\u064A\u062D \u0639\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0635\u064A\u062F");
       }
@@ -544,7 +567,7 @@ async function placeGroupBounce(g) {
       st.placedAt = Date.now();
       pushLog("server", "[ladder] \u{1F3AF} \u0635\u064A\u062F \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + "/5 \u0639\u0644\u0649 " + S.config.displaySymbol + ": " + placed + " \u0623\u0648\u0627\u0645\u0631 \u0639\u0646\u062F \u0645\u0646\u0627\u0637\u0642 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062F\u0631\u0648\u0633\u0629 \u2014 \u0627\u0644\u0631\u0626\u064A\u0633\u064A " + fmtPx(chosen[0].px) + " (" + chosen[0].touch + " \u0644\u0645\u0633\u0627\u062A) \u0628\u062D\u062C\u0645 40%\u060C \u0648\u0627\u0644\u0625\u0636\u0627\u0641\u0627\u062A \u0623\u0639\u0645\u0642 \u0639\u0646\u062F \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0645\u062E\u062A\u0628\u0631\u0629 \u0641\u0642\u0637");
       emit();
-    } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 6e4) {
+    } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 3e5) {
       st.noZoneAt = Date.now();
       pushLog("server", "[ladder] \u{1F3AF} \u0623\u062D\u062C\u0627\u0645 \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0645\u062F\u0631\u0648\u0633\u0629 \u0623\u0635\u063A\u0631 \u0645\u0646 \u062D\u062F \u0627\u0644\u0645\u0646\u0635\u0629 \u2014 \u0635\u064A\u062F \u0647\u0627\u062F\u0626");
     }
@@ -646,9 +669,10 @@ function ladderTick(price) {
     return;
   }
   const cur = groupOrders(stNow.group);
+  const retryMs = _zoneFails >= 4 ? 3e5 : _zoneFails >= 2 ? 12e4 : 6e4;
   if (bounceOn()) {
     if (!cur.length) {
-      if (!stNow.lastTry || Date.now() - stNow.lastTry > 6e4) {
+      if (!stNow.lastTry || Date.now() - stNow.lastTry > retryMs) {
         stNow.lastTry = Date.now();
         placeGroup(stNow.group, price);
       }
@@ -1565,14 +1589,30 @@ async function hmacB64(secret, payload) {
   const sig2 = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return btoa(String.fromCharCode(...new Uint8Array(sig2)));
 }
+var _kcPubLastAt = 0;
 async function kcPublic(path, timeout) {
+  if (S._rlPubUntil && Date.now() < S._rlPubUntil) throw new Error("\u062A\u0647\u062F\u0626\u0629 \u062D\u0635\u0629 \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0639\u0627\u0645\u0629 \u2014 \u064A\u064F\u0639\u0627\u062F \u0628\u0639\u062F \u0642\u0644\u064A\u0644");
+  const _gap = Date.now() - _kcPubLastAt;
+  if (_kcPubLastAt && _gap > 0 && _gap < 150) {
+    await new Promise((r) => setTimeout(r, 150 - _gap));
+  }
+  _kcPubLastAt = Date.now();
   const res = await kcFetch(path, {
     cache: "no-store",
     signal: sig(timeout || 3500)
   });
+  if (res.status === 429) {
+    S._rlPubUntil = Date.now() + 3e4;
+    throw new Error("KuCoin 429 \u2014 \u062A\u0647\u062F\u0626\u0629 30 \u062B\u0627\u0646\u064A\u0629");
+  }
   if (!res.ok) throw new Error("KuCoin " + res.status);
   const j = await res.json();
-  if (j.code !== "200000") throw new Error(j.msg || j.code);
+  if (j.code !== "200000") {
+    if (/too many|rate limit/i.test(String(j.msg || ""))) {
+      S._rlPubUntil = Date.now() + 3e4;
+    }
+    throw new Error(j.msg || j.code);
+  }
   return j.data;
 }
 async function kcPrivate(method, path, body) {
@@ -2397,6 +2437,13 @@ async function maybeSwitchSymbol() {
     const idleMs = Date.now() - (S._dwellAt || S.startedAt || S._savedAt || Date.now());
     const barren = idleMs > 15 * 60 * 1e3;
     if (barren && best) {
+      if (S.config.bounceMode !== false && !((S._zonesOkAt || 0) > (S._dwellAt || 0))) {
+        if (!S._barrenHoldAt || Date.now() - S._barrenHoldAt > 5 * 60 * 1e3) {
+          S._barrenHoldAt = Date.now();
+          pushLog("server", "\u23F8\uFE0F \u062F\u0648\u0631\u0627\u0646 \u0627\u0644\u0628\u0648\u0631\u0629 \u0645\u0624\u062C\u0644: \u0645\u0646\u0627\u0637\u0642 " + S.config.displaySymbol + " \u0644\u0645 \u062A\u064F\u062F\u0631\u0633 \u0628\u0639\u062F \u2014 \u0627\u0644\u0645\u0646\u0635\u0629 \u062A\u0631\u0641\u0636 \u0627\u0644\u0637\u0644\u0628\u0627\u062A\u060C \u0627\u0644\u062F\u0648\u0631\u0627\u0646 \u0644\u0646 \u064A\u0641\u064A\u062F");
+        }
+        return;
+      }
       _lastSwitchAt = Date.now();
       const curDisp2 = cur ? cur.disp : S.config.displaySymbol, curSc2 = cur ? cur.score : 0;
       pushLog("server", "\u{1F504} \u062F\u0648\u0631\u0627\u0646 \u0627\u0644\u0628\u0648\u0631\u0629 (" + Math.round(idleMs / 6e4) + " \u062F \u0628\u0644\u0627 \u062A\u0646\u0641\u064A\u0630): " + curDisp2 + " (" + curSc2 + ") \u2192 " + best.disp + " (" + best.score + ") \u2014 \u0644\u0627 \u062C\u0644\u0648\u0633 \u0639\u0644\u0649 \u0639\u0645\u0644\u0629 \u062E\u0627\u0645\u062F\u0629");
@@ -2603,6 +2650,18 @@ async function ensureLiveMeta(symbol2) {
       S.multiplier = km;
       if (kt > 0) S.tickSize = kt;
       S._metaSym = symbol2;
+      return;
+    }
+    const sp = (S._specsMap || {})[symbol2];
+    if (sp && sp.m > 0) {
+      S.multiplier = sp.m;
+      if (sp.t > 0) S.tickSize = sp.t;
+      if (sp.q > 0) S.maxOrderQty = sp.q;
+      S._metaSym = symbol2;
+      S._multMap = S._multMap || {};
+      S._multMap[symbol2] = sp.m;
+      S._tickMap = S._tickMap || {};
+      S._tickMap[symbol2] = sp.t;
       return;
     }
     throw new Error("\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0642\u062F \u063A\u064A\u0631 \u062C\u0627\u0647\u0632\u0629 \u2014 \u0623\u064F\u062C\u0651\u0644 \u0627\u0644\u0623\u0645\u0631 \u0644\u062D\u064A\u0646 \u062A\u0648\u062B\u064A\u0642 \u0627\u0644\u0645\u0636\u0627\u0639\u0641");
@@ -2902,7 +2961,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.8 waits 2h/3h/4h/4h main40% studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.9 waits 2h/3h/4h/4h main40% studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -5328,9 +5387,11 @@ function studiedTpZone(pos, p) {
   try {
     const dir2 = pos.side === "long" ? 1 : -1;
     if (S._tpResSym !== S.config.symbol || !S._tpResAt || Date.now() - S._tpResAt > 6e4) {
-      S._tpResSym = S.config.symbol;
+      if (S._tpResSym !== S.config.symbol) {
+        S._tpRes = 0;
+        S._tpResSym = S.config.symbol;
+      }
       S._tpResAt = Date.now();
-      S._tpRes = 0;
       fetchKlines(S.config.symbol, 15).then((ks) => {
         try {
           if (!ks || ks.length < 40) return;
@@ -5639,20 +5700,42 @@ async function loadMarket(full) {
     price = +t.price || price;
   }
   if (!S._metaAt || Date.now() - S._metaAt > 6e4) {
-    const ct = await fetchContract(c);
-    S._metaAt = Date.now();
-    mark = +ct.markPrice || mark;
-    S.makerFee = normFee(ct.makerFeeRate ?? ct.makerFeeCoefficient, S.makerFee);
-    S.takerFee = normFee(ct.takerFeeRate ?? ct.takerFeeCoefficient, S.takerFee);
-    S.funding = +ct.fundingFeeRate || 0;
-    const _mul = +ct.multiplier, _tk = +ct.tickSize;
-    if (_mul > 0) {
-      S.multiplier = _mul;
-      S._metaSym = c;
+    let ct = null;
+    try {
+      ct = await fetchContract(c);
+    } catch (e) {
+      logSwallow("silent-catch", e);
     }
-    if (_tk > 0) S.tickSize = _tk;
-    if (+ct.maxOrderQty > 0) S.maxOrderQty = +ct.maxOrderQty;
-    if (!price) price = mark;
+    if (!ct) {
+      const sp = (S._specsMap || {})[c];
+      if (sp && sp.m > 0) {
+        S.multiplier = sp.m;
+        if (sp.t > 0) S.tickSize = sp.t;
+        if (sp.q > 0) S.maxOrderQty = sp.q;
+        S._metaSym = c;
+        S._metaAt = Date.now();
+        S._multMap = S._multMap || {};
+        S._multMap[c] = sp.m;
+        S._tickMap = S._tickMap || {};
+        S._tickMap[c] = sp.t;
+        pushLog("server", "\u{1F4D0} \u0645\u0648\u0627\u0635\u0641\u0627\u062A " + S.config.displaySymbol + " \u0645\u0646 \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0639\u0642\u0648\u062F \u0627\u0644\u0645\u0631\u0643\u0632\u064A\u0629: \u0645\u0636\u0627\u0639\u0641 " + sp.m + " \u2014 \u0627\u0644\u062A\u0633\u0644\u064A\u062D \u0644\u0627 \u064A\u062A\u0648\u0642\u0641");
+      }
+    }
+    if (ct) {
+      S._metaAt = Date.now();
+      mark = +ct.markPrice || mark;
+      S.makerFee = normFee(ct.makerFeeRate ?? ct.makerFeeCoefficient, S.makerFee);
+      S.takerFee = normFee(ct.takerFeeRate ?? ct.takerFeeCoefficient, S.takerFee);
+      S.funding = +ct.fundingFeeRate || 0;
+      const _mul = +ct.multiplier, _tk = +ct.tickSize;
+      if (_mul > 0) {
+        S.multiplier = _mul;
+        S._metaSym = c;
+      }
+      if (_tk > 0) S.tickSize = _tk;
+      if (+ct.maxOrderQty > 0) S.maxOrderQty = +ct.maxOrderQty;
+      if (!price) price = mark;
+    }
   }
   const m = { price, markPrice: mark };
   const bookStale = Date.now() - (streamState.bookAt || 0) > 8e3;
@@ -6899,7 +6982,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.8";
+var SRV_VER = "AB-210-TRQ-1.1.9";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
