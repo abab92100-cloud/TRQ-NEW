@@ -400,7 +400,7 @@ function ladderOn() {
   return !!(S.config && S.config.ladderMode);
 }
 function ladderState() {
-  if (!S._ladder) S._ladder = { active: false, group: 0, anchor: 0, waitUntil: 0, winExtreme: 0, harvestAtStart: 0, symbol: "", maxed: false };
+  if (!S._ladder) S._ladder = { active: false, group: 0, anchor: 0, waitUntil: 0, winExtreme: 0, harvestAtStart: 0, symbol: "", maxed: false, placing: false, lastTry: 0, placedAt: 0, noZoneAt: 0, fetchFailAt: 0 };
   return S._ladder;
 }
 var ladderShort = () => S.position ? S.position.side === "short" : S.config.direction === "short";
@@ -440,6 +440,123 @@ function resetLadder(reason) {
   st.maxed = false;
   if (reason) pushLog("server", "[ladder] " + reason);
 }
+function bounceOn() {
+  return S.config && S.config.bounceMode !== false;
+}
+var ZONE_CLUSTER_PCT = 25e-4;
+var ZONE_MAX_DIST_PCT = 0.015;
+var ZONE_MIN_DIST_PCT = 6e-4;
+var _zoneCache = null;
+async function bounceZones(short) {
+  const sym = S.config.symbol;
+  if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 36e5)
+    return _zoneCache.zones;
+  const ks = await fetchKlines(sym, 15);
+  if (!ks || ks.length < 40) return [];
+  const win = ks.slice(-96);
+  const pts = [];
+  for (let i = 2; i < win.length - 2; i++) {
+    const seg = win.slice(i - 2, i + 3);
+    if (short) {
+      if (win[i].h >= Math.max(...seg.map((k) => k.h))) pts.push({ px: win[i].h, i });
+    } else if (win[i].l <= Math.min(...seg.map((k) => k.l))) pts.push({ px: win[i].l, i });
+  }
+  if (!pts.length) return [];
+  pts.sort((a, b) => a.px - b.px);
+  const zones = [];
+  for (const p of pts) {
+    const last = zones[zones.length - 1];
+    if (last && Math.abs(p.px - last.px) / last.px <= ZONE_CLUSTER_PCT) {
+      last.touch++;
+      last.lastI = Math.max(last.lastI, p.i);
+      last.px = short ? Math.max(last.px, p.px) : Math.min(last.px, p.px);
+    } else zones.push({ px: p.px, touch: 1, lastI: p.i });
+  }
+  const alive = zones.filter((z) => !win.some((k, j) => j > z.lastI && (short ? k.c > z.px * 1.003 : k.c < z.px * 0.997)));
+  _zoneCache = { sym, short, at: Date.now(), zones: alive };
+  return alive;
+}
+async function placeGroupBounce(g) {
+  const st = ladderState();
+  if (st.placing) return;
+  st.placing = true;
+  try {
+    const short = ladderShort();
+    const zones = await bounceZones(short);
+    const px0 = S.lastPrice || (S.position ? S.position.entry : 0);
+    if (!(px0 > 0)) return;
+    if (!zones.length) {
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 6e4) {
+        st.noZoneAt = Date.now();
+        pushLog("server", "[ladder] \u{1F3AF} \u0644\u0627 \u0645\u0646\u0637\u0642\u0629 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062F\u0631\u0648\u0633\u0629 \u0633\u0644\u064A\u0645\u0629 \u0639\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0635\u064A\u062F \u0647\u0627\u062F\u0626: \u0644\u0627 \u062F\u062E\u0648\u0644 \u0641\u064A \u0645\u0646\u062A\u0635\u0641 \u0627\u0644\u0647\u0648\u0627\u0621");
+      }
+      return;
+    }
+    const dir2 = short ? 1 : -1;
+    let pool = zones.filter((z) => {
+      const d = (z.px - px0) / px0 * dir2;
+      return d >= ZONE_MIN_DIST_PCT && d <= ZONE_MAX_DIST_PCT;
+    });
+    const avg = S.position ? S.position.entry : 0;
+    if (g > 0 && avg > 0) pool = pool.filter((z) => (z.px - avg) * dir2 > 0);
+    const exl = S.exLiqPrice || 0;
+    if (exl > 0) pool = pool.filter((z) => short ? z.px < exl * 0.98 : z.px > exl * 1.02);
+    const existing = (S.grid || []).filter((l) => l.origin === "ladder" && (l.status === "armed" || l.status === "open" || l.filledAt));
+    pool = pool.filter((z) => !existing.some((l) => l.price > 0 && Math.abs(l.price - z.px) / z.px < 15e-4));
+    pool.sort((a, b) => b.touch - a.touch || Math.abs(a.px - px0) - Math.abs(b.px - px0));
+    const chosen = pool.slice(0, GROUP_SIZE);
+    if (!chosen.length) {
+      if (!st.noZoneAt || Date.now() - st.noZoneAt > 6e4) {
+        st.noZoneAt = Date.now();
+        pushLog("server", "[ladder] \u{1F3AF} \u0644\u0627 \u0645\u0646\u0637\u0642\u0629 \u0633\u0644\u064A\u0645\u0629 \u0642\u0631\u064A\u0628\u0629 \u0643\u0627\u0641\u064A\u0629 \u0644\u0644\u062A\u0633\u0644\u064A\u062D \u0639\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0635\u064A\u062F");
+      }
+      return;
+    }
+    const part = ladderParts()[Math.min(g, 4)];
+    const fr = [0.4, 0.25, 0.2, 0.15];
+    const side = short ? "sell" : "buy";
+    let placed = 0;
+    for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
+      const z = chosen[k];
+      const mult = S.multiplier || 1;
+      let q = part * fr[k] / (mult * z.px);
+      q = capEntryQty(q, z.px);
+      if (!(q >= 1)) continue;
+      S.grid.push({
+        id: "lb" + g + "_" + k + "_" + Date.now().toString(36),
+        clientOid: "lbo" + g + "_" + k + "_" + Math.random().toString(36).slice(2, 8),
+        side,
+        price: z.px,
+        qty: q,
+        status: "armed",
+        reduceOnly: false,
+        exchangeOrderId: null,
+        filledAt: null,
+        origin: "ladder",
+        lane: "ladder",
+        ladderGroup: g,
+        createdAt: Date.now()
+      });
+      placed++;
+    }
+    if (placed) {
+      S.grid.sort((a, b) => b.price - a.price);
+      st.placedAt = Date.now();
+      pushLog("server", "[ladder] \u{1F3AF} \u0635\u064A\u062F \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + "/5 \u0639\u0644\u0649 " + S.config.displaySymbol + ": " + placed + " \u0623\u0648\u0627\u0645\u0631 \u0639\u0646\u062F \u0645\u0646\u0627\u0637\u0642 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062F\u0631\u0648\u0633\u0629 \u2014 \u0627\u0644\u0631\u0626\u064A\u0633\u064A " + fmtPx(chosen[0].px) + " (" + chosen[0].touch + " \u0644\u0645\u0633\u0627\u062A) \u0628\u062D\u062C\u0645 40%\u060C \u0648\u0627\u0644\u0625\u0636\u0627\u0641\u0627\u062A \u0623\u0639\u0645\u0642 \u0639\u0646\u062F \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0645\u062E\u062A\u0628\u0631\u0629 \u0641\u0642\u0637");
+      emit();
+    } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 6e4) {
+      st.noZoneAt = Date.now();
+      pushLog("server", "[ladder] \u{1F3AF} \u0623\u062D\u062C\u0627\u0645 \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0645\u062F\u0631\u0648\u0633\u0629 \u0623\u0635\u063A\u0631 \u0645\u0646 \u062D\u062F \u0627\u0644\u0645\u0646\u0635\u0629 \u2014 \u0635\u064A\u062F \u0647\u0627\u062F\u0626");
+    }
+  } catch (e) {
+    if (!st.fetchFailAt || Date.now() - st.fetchFailAt > 6e4) {
+      st.fetchFailAt = Date.now();
+      pushLog("server", "[ladder] \u062A\u0639\u0630\u0631 \u062C\u0644\u0628 \u0634\u0645\u0648\u0639 \u0627\u0644\u062F\u0631\u0627\u0633\u0629 \u2014 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u062E\u0644\u0627\u0644 \u062F\u0642\u064A\u0642\u0629");
+    }
+  } finally {
+    st.placing = false;
+  }
+}
 function placeGroup(g, anchor) {
   if (S._metaSym !== S.config.symbol || !(S.multiplier > 0)) {
     const km = (S._multMap || {})[S.config.symbol] || 0;
@@ -464,6 +581,10 @@ function placeGroup(g, anchor) {
       pushLog("server", "[ladder] \u26D4 \u0645\u0631\u0633\u0627\u0629 \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + " (" + fmtPx(anchor) + ") \u062A\u0628\u0639\u062F " + r.toFixed(0) + "\xD7 \u0639\u0646 \u0633\u0639\u0631 " + S.config.displaySymbol + " \u2014 \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u0644\u0648\u0651\u062B\u0629\u060C \u064A\u064F\u0631\u0641\u0636 \u0627\u0644\u062A\u0633\u0644\u064A\u062D");
       return;
     }
+  }
+  if (bounceOn()) {
+    placeGroupBounce(g);
+    return;
   }
   const short = ladderShort();
   const side = short ? "sell" : "buy";
@@ -495,6 +616,7 @@ function placeGroup(g, anchor) {
     placed++;
   }
   S.grid.sort((a, b) => b.price - a.price);
+  ladderState().placedAt = Date.now();
   pushLog("server", "[ladder] \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + "/5 \u0645\u0646 " + fmtPx(anchor) + " \u2014 \u062A\u0628\u0627\u0639\u062F " + (sp * 100).toFixed(2) + "% \u2014 " + placed + " \u0623\u0648\u0627\u0645\u0631\u060C \u0623\u062D\u062C\u0627\u0645 \u062A\u0635\u0627\u0639\u062F\u064A\u0629 \xD71.25 (\u0627\u0644\u0623\u0648\u0644 \u0623\u0635\u063A\u0631\u0647\u0627)");
 }
 function ladderTick(price) {
@@ -524,6 +646,20 @@ function ladderTick(price) {
     return;
   }
   const cur = groupOrders(stNow.group);
+  if (bounceOn()) {
+    if (!cur.length) {
+      if (!stNow.lastTry || Date.now() - stNow.lastTry > 6e4) {
+        stNow.lastTry = Date.now();
+        placeGroup(stNow.group, price);
+      }
+      return;
+    }
+    if (stNow.placedAt && Date.now() - stNow.placedAt > 36e5 && cur.every((l) => l.status === "armed" && !l.filledAt)) {
+      resetLadder("\u0627\u0646\u062A\u0647\u062A \u0635\u0644\u0627\u062D\u064A\u0629 \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0635\u064A\u062F \u0628\u0644\u0627 \u062A\u0646\u0641\u064A\u0630 \u2014 \u062A\u062D\u062F\u064A\u062B \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0648\u0627\u0644\u062F\u0631\u0627\u0633\u0629");
+      emit();
+      return;
+    }
+  }
   if (!S.position && cur.length && cur.every((l) => l.status === "cancelled") && !cur.some((l) => l.filledAt)) {
     if (!S._ladReArmAt || Date.now() - S._ladReArmAt > 3e4) {
       S._ladReArmAt = Date.now();
@@ -534,9 +670,10 @@ function ladderTick(price) {
     }
     return;
   }
-  if (cur.length < GROUP_SIZE) return;
+  const total = bounceOn() ? cur.length || GROUP_SIZE : GROUP_SIZE;
+  if (cur.length < Math.max(1, total)) return;
   const filled = cur.filter((l) => l.status === "filled" || l.filledAt).length;
-  if (filled < GROUP_SIZE) return;
+  if (filled < total) return;
   if (!stNow.waitUntil) {
     const w = WAITS_MS[Math.min(stNow.group, WAITS_MS.length - 1)];
     stNow.waitUntil = Date.now() + w;
@@ -1020,6 +1157,8 @@ var S = {
     patienceUsd: 0,
     gapMode: false,
     ladderMode: true,
+    bounceMode: true,
+    // صائد الارتداد المدروس (أمر المالك 7 نوفمبر): دخول عند مناطق ارتداد مختبرة من الشموع فقط — لا دخول في منتصف الهواء
     seqMode: false
     // الأساطيل حرة (أمر المالك 6 نوفمبر): كل محرك يضع منطقة دخوله فور اكتمال دراسته — لا انتظار على أسطول آخر
   },
@@ -2763,13 +2902,13 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.8 waits 2h/3h/4h/4h main40% studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
   const c = S.config;
   if (!cfg) return false;
-  const fields = ["gridStepPct", "levels", "leverage", "tpUsd", "tpNet", "huntPct", "directionMode", "hfMode"];
+  const fields = ["gridStepPct", "levels", "leverage", "tpUsd", "tpNet", "huntPct", "directionMode", "hfMode", "bounceMode"];
   let changed = 0;
   for (const f of fields) {
     if (cfg[f] != null && c[f] !== cfg[f]) {
@@ -5035,6 +5174,18 @@ async function noProgressRotate(p) {
   if (net > 0 && net / tgt >= 0.25) return;
   const mult = S.multiplier || 1;
   const feeRt = (pos.size || 0) * mult * Number(p || 0) * 8e-4;
+  if (net < 0 && Date.now() - openedAt >= 8 * 36e5) {
+    const share = Math.max(1, ((S.exEquity != null ? S.exEquity : S.config.cycleBalance) || 0) / 5);
+    const cap = Math.max(0.3, feeRt * 3, share * 0.02);
+    const vNow = retStdev() || 0;
+    if (-net <= cap && vNow < 0.04) {
+      pushLog("server", "\u2696\uFE0F \u062E\u0631\u0648\u062C \u0627\u0644\u062A\u0639\u0627\u062F\u0644 v1.1.8: " + S.config.displaySymbol + " \u0645\u0639\u0644\u0642\u0629 " + Math.round((Date.now() - openedAt) / 36e5) + " \u0633\u0627\u0639\u0629 \u0628\u0644\u0627 \u062A\u0642\u062F\u0645 \u0639\u0644\u0649 \u0639\u0645\u0644\u0629 \u0645\u064A\u062A\u0629 (\u062A\u0642\u0644\u0628 " + vNow.toFixed(3) + "%) \u2014 \u0625\u063A\u0644\u0627\u0642 \u0642\u0631\u0628 \u0627\u0644\u062A\u0639\u0627\u062F\u0644 (" + fmtUsd(net) + ") \u0648\u062A\u062D\u0631\u064A\u0631 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0644\u0639\u0645\u0644\u0629 \u0623\u0646\u0634\u0637 \u0628\u0639\u062F \u0627\u0644\u062F\u0631\u0627\u0633\u0629");
+      await flattenAt(p, "\u062E\u0631\u0648\u062C \u0627\u0644\u062A\u0639\u0627\u062F\u0644");
+      S._postDisaster = Date.now();
+      startStudy(false);
+      return;
+    }
+  }
   if (!(net >= feeRt * 2)) return;
   pushLog("server", "\u{1F504} \u0645\u0647\u0644\u0629 \u0627\u0644\u062A\u062F\u0648\u064A\u0631 v1.1.7: \u0633\u0627\u0639\u0629 \u0628\u0644\u0627 \u062A\u0642\u062F\u0645 \u0639\u0644\u0649 " + S.config.displaySymbol + " \u2014 \u0625\u063A\u0644\u0627\u0642 \u0628\u0633\u0644\u0627\u0645 \u0628\u0631\u0628\u062D " + fmtUsd(net) + " (\u064A\u063A\u0637\u064A \u0627\u0644\u0639\u0645\u0648\u0644\u062A\u064A\u0646) \u062B\u0645 \u0627\u0644\u062A\u062F\u0648\u064A\u0631 \u0644\u0639\u0645\u0644\u0629 \u0646\u0634\u0637\u0629 \u0628\u0639\u062F \u0627\u0644\u062F\u0631\u0627\u0633\u0629");
   await flattenAt(p, "\u062A\u062F\u0648\u064A\u0631 \u0627\u0644\u062D\u064A\u0648\u064A\u0629");
@@ -5170,6 +5321,49 @@ function studiedTpZone(pos, p) {
           why: "\u062C\u062F\u0627\u0631 \u0633\u064A\u0648\u0644\u0629 \u0628\u0627\u0631\u0632 \u0639\u0644\u0649 \u0628\u0639\u062F " + (dist * 100).toFixed(2) + "% \u2014 \u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F \u0645\u0646\u0647 \u0645\u0631\u062C\u062D"
         };
       }
+    }
+  } catch (e) {
+    logSwallow("silent-catch", e);
+  }
+  try {
+    const dir2 = pos.side === "long" ? 1 : -1;
+    if (S._tpResSym !== S.config.symbol || !S._tpResAt || Date.now() - S._tpResAt > 6e4) {
+      S._tpResSym = S.config.symbol;
+      S._tpResAt = Date.now();
+      S._tpRes = 0;
+      fetchKlines(S.config.symbol, 15).then((ks) => {
+        try {
+          if (!ks || ks.length < 40) return;
+          const win = ks.slice(-96);
+          const px0 = S.lastPrice || pos.entry || 0;
+          if (!(px0 > 0)) return;
+          const pts = [];
+          for (let i = 2; i < win.length - 2; i++) {
+            const seg = win.slice(i - 2, i + 3);
+            if (dir2 > 0) {
+              if (win[i].h >= Math.max(...seg.map((k) => k.h))) pts.push({ px: win[i].h, i });
+            } else if (win[i].l <= Math.min(...seg.map((k) => k.l))) pts.push({ px: win[i].l, i });
+          }
+          const cand = pts.filter((z) => {
+            const dist = (z.px - px0) / px0 * dir2;
+            return dist > 2e-3 && dist <= 0.012 && !win.some((k, j) => j > z.i && (dir2 > 0 ? k.c > z.px * 1.003 : k.c < z.px * 0.997));
+          });
+          if (cand.length) {
+            cand.sort((a, b) => Math.abs(a.px - px0) - Math.abs(b.px - px0));
+            S._tpRes = cand[0].px * (dir2 > 0 ? 0.9995 : 1.0005);
+          }
+        } catch {
+        }
+      }).catch(() => {
+      });
+    }
+    if (S._tpRes > 0) {
+      const dist = (S._tpRes - p) / p * dir2;
+      if (dist > 0) return {
+        zone: S._tpRes,
+        dist: dist * 100,
+        why: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0645\u062E\u062A\u0628\u0631\u0629 \u0645\u0646 \u0627\u0644\u0634\u0645\u0648\u0639 \u0639\u0644\u0649 \u0628\u0639\u062F " + (dist * 100).toFixed(2) + "% \u2014 \u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F \u0645\u0646\u0647\u0627 \u0645\u0631\u062C\u062D"
+      };
     }
   } catch (e) {
     logSwallow("silent-catch", e);
@@ -6705,7 +6899,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.7";
+var SRV_VER = "AB-210-TRQ-1.1.8";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
