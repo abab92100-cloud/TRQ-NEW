@@ -480,7 +480,7 @@ async function bounceZones(short) {
     if (staleOk) return _zoneCache.zones;
     return [];
   }
-  const win = ks.slice(-96);
+  const win = ks.slice(-192);
   const pts = [];
   for (let i = 2; i < win.length - 2; i++) {
     const seg = win.slice(i - 2, i + 3);
@@ -1197,8 +1197,10 @@ var S = {
     // قوة الدخول الأولى (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة بحجم مضاعف ×3 — قابل للضبط 1-6 من الإعدادات
     groupWaitMin: 20,
     // انتظار المجموعات بالدقائق (v1.1.12 «تسليح مستمر»): بدل 2/3/4/4 ساعات — 20 دقيقة افتراضياً، قابل للضبط 5-240
-    stickMin: 30
+    stickMin: 30,
     // مهلة الثبات بالدقائق (v1.1.13 «الثبات يصطاد»): لا تدوير طالما توجد مناطق مسلحة ضمن هذه المهلة — 30 دقيقة افتراضياً
+    diversityMin: 120
+    // نافذة التنويع بالدقائق (v1.1.14 «العودة الساخنة»): العملة المجناة تُحظر ساعتين فقط بدل 24 ساعة
   },
   status: "idle",
   heartbeat: 0,
@@ -1786,7 +1788,7 @@ async function backgroundPipeline() {
     if (!r || !r.list || !r.list.length) return;
     if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest && !stickyArmed()) {
       S.recentCoins = S.recentCoins || {};
-      const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > 24 * 3600 * 1e3;
+      const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > diversityMs();
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
       const curOk = curL && Number(curL.score || 0) >= 68;
       if (!curOk) {
@@ -2156,12 +2158,12 @@ async function postHarvestReselect() {
     S.recentCoins[S.config.symbol] = Date.now();
     const fresh = (l) => {
       const t = S.recentCoins[l.symbol] || 0;
-      return Date.now() - t > 24 * 3600 * 1e3;
+      return Date.now() - t > diversityMs();
     };
     const cur = r.list.find((l) => l.symbol === S.config.symbol);
     if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest && !stickyArmed()) {
       S.recentCoins = S.recentCoins || {};
-      const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > 24 * 3600 * 1e3;
+      const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > diversityMs();
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
       const curOk = curL && Number(curL.score || 0) >= 68;
       if (!curOk) {
@@ -2203,7 +2205,7 @@ async function postHarvestReselect() {
     S._nextReady = false;
     S._nextSymbol = null;
     if (!pick) {
-      S._waitFreshUntil = Date.now() + 30 * 6e4;
+      S._waitFreshUntil = Date.now() + 10 * 6e4;
       pushLog("server", "\u{1F50E} \u0628\u0639\u062F \u0627\u0644\u062C\u0646\u064A: \u0644\u0627 \u0628\u062F\u064A\u0644 \u062C\u062F\u064A\u062F \u0645\u0624\u0647\u0644 \u2014 \u0644\u0627 \u0625\u0639\u0627\u062F\u0629 \u062F\u062E\u0648\u0644 \u0644\u0646\u0641\u0633 \u0627\u0644\u0639\u0645\u0644\u0629 \u2014 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0645\u0631\u0634\u062D \u062C\u062F\u064A\u062F \u0645\u0646 \u0627\u0644\u062F\u0631\u0627\u0633\u0629 \u0627\u0644\u0634\u0627\u0645\u0644\u0629 (\u062D\u062A\u0649 30 \u062F\u0642\u064A\u0642\u0629)");
       return;
     }
@@ -3012,7 +3014,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.13 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.14 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3717,6 +3719,9 @@ function resolveDirection(now) {
 function entryBoost() {
   return clamp(Math.round(Number(S.config && S.config.entryBoost) || 3), 1, 6);
 }
+function diversityMs() {
+  return Math.max(30, Math.round(Number(S.config && S.config.diversityMin) || 120)) * 6e4;
+}
 function armedPendingCount() {
   try {
     return (S.grid || []).filter((l) => !l.reduceOnly && !l.filledAt && (l.status === "armed" || l.status === "open")).length;
@@ -4398,7 +4403,7 @@ function _harvestCleanup(fp) {
     S.recentCoins[S.config.symbol] = Date.now();
   } catch {
   }
-  S._waitFreshUntil = Date.now() + 10 * 6e4;
+  S._waitFreshUntil = Date.now() + 3 * 6e4;
   S._reselectDone = false;
   S._posPeakNet = null;
   S._batchFills = 0;
@@ -6792,6 +6797,7 @@ function saveCfg(v) {
   if (v.entryBoost != null && v.entryBoost !== "") S.config.entryBoost = clamp(Math.round(+v.entryBoost) || 3, 1, 6);
   if (v.groupWaitMin != null && v.groupWaitMin !== "") S.config.groupWaitMin = clamp(Math.round(+v.groupWaitMin) || 20, 5, 240);
   if (v.stickMin != null && v.stickMin !== "") S.config.stickMin = clamp(Math.round(+v.stickMin) || 30, 5, 240);
+  if (v.diversityMin != null && v.diversityMin !== "") S.config.diversityMin = clamp(Math.round(+v.diversityMin) || 120, 30, 1440);
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
@@ -7073,7 +7079,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.13";
+var SRV_VER = "AB-210-TRQ-1.1.14";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
