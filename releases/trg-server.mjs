@@ -394,7 +394,15 @@ if (typeof navigator !== "undefined" && navigator.onLine !== void 0) {
 // src/ladder.ts
 var GROUP_SIZE = 4;
 var SPACINGS = [0.3, 0.4, 0.5, 0.6, 0.7];
-var WAITS_MS = [2 * 36e5, 3 * 36e5, 4 * 36e5, 4 * 36e5];
+function groupWaitMs(g) {
+  const w = Math.max(5, Math.round(Number(S.config && S.config.groupWaitMin) || 20));
+  const m = [1, 1.5, 2, 2][Math.min(g, 3)];
+  return Math.round(w * m * 6e4);
+}
+function waitsDesc() {
+  const w = Math.max(5, Math.round(Number(S.config && S.config.groupWaitMin) || 20));
+  return [1, 1.5, 2, 2].map((x) => Math.round(w * x) + "m").join("/");
+}
 var ASC = 1.25;
 function ladderOn() {
   return !!(S.config && S.config.ladderMode);
@@ -699,11 +707,11 @@ function ladderTick(price) {
   const filled = cur.filter((l) => l.status === "filled" || l.filledAt).length;
   if (filled < total) return;
   if (!stNow.waitUntil) {
-    const w = WAITS_MS[Math.min(stNow.group, WAITS_MS.length - 1)];
+    const w = groupWaitMs(stNow.group);
     stNow.waitUntil = Date.now() + w;
     stNow.winExtreme = price;
     stNow.harvestAtStart = S.cycleHarvested || 0;
-    pushLog("server", "[ladder] \u0646\u064F\u0641\u0650\u0651\u0630\u062A \u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (stNow.group + 1) + "/5 \u0643\u0627\u0645\u0644\u0629 \u2014 \u062A\u0648\u0642\u0641 \u0627\u0644\u062F\u062E\u0648\u0644 " + w / 36e5 + " \u0633\u0627\u0639\u0627\u062A\u060C \u064A\u064F\u062A\u062A\u0628\u064E\u0651\u0639 " + (short ? "\u0623\u0639\u0644\u0649" : "\u0623\u062F\u0646\u0649") + " \u0633\u0639\u0631 \u0648\u0635\u0644 \u0644\u0647 \u0627\u0644\u0633\u0639\u0631 \u062E\u0644\u0627\u0644\u0647\u0627");
+    pushLog("server", "[ladder] \u0646\u064F\u0641\u0650\u0651\u0630\u062A \u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (stNow.group + 1) + "/5 \u0643\u0627\u0645\u0644\u0629 \u2014 \u062A\u0648\u0642\u0641 \u0627\u0644\u062F\u062E\u0648\u0644 " + Math.round(w / 6e4) + " \u062F\u0642\u064A\u0642\u0629\u060C \u064A\u064F\u062A\u062A\u0628\u064E\u0651\u0639 " + (short ? "\u0623\u0639\u0644\u0649" : "\u0623\u062F\u0646\u0649") + " \u0633\u0639\u0631 \u0648\u0635\u0644 \u0644\u0647 \u0627\u0644\u0633\u0639\u0631 \u062E\u0644\u0627\u0644\u0647\u0627");
     emit();
     return;
   }
@@ -1185,8 +1193,10 @@ var S = {
     // صائد الارتداد المدروس (أمر المالك 7 نوفمبر): دخول عند مناطق ارتداد مختبرة من الشموع فقط — لا دخول في منتصف الهواء
     seqMode: false,
     // الأساطيل حرة (أمر المالك 6 نوفمبر): كل محرك يضع منطقة دخوله فور اكتمال دراسته — لا انتظار على أسطول آخر
-    entryBoost: 3
+    entryBoost: 3,
     // قوة الدخول الأولى (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة بحجم مضاعف ×3 — قابل للضبط 1-6 من الإعدادات
+    groupWaitMin: 20
+    // انتظار المجموعات بالدقائق (v1.1.12 «تسليح مستمر»): بدل 2/3/4/4 ساعات — 20 دقيقة افتراضياً، قابل للضبط 5-240
   },
   status: "idle",
   heartbeat: 0,
@@ -2993,7 +3003,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.11 waits 2h/3h/4h/4h main40% boost3 studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.12 waits " + waitsDesc() + " main40% boost" + entryBoost() + " studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -6746,6 +6756,7 @@ function saveCfg(v) {
   if (v.tpUsd != null && v.tpUsd !== "") S.config.tpUsd = clamp(+v.tpUsd || 0, 0, 1e3);
   S.config.cycleBalance = Math.max(1, +v.cycleBalance || 100);
   if (v.entryBoost != null && v.entryBoost !== "") S.config.entryBoost = clamp(Math.round(+v.entryBoost) || 3, 1, 6);
+  if (v.groupWaitMin != null && v.groupWaitMin !== "") S.config.groupWaitMin = clamp(Math.round(+v.groupWaitMin) || 20, 5, 240);
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
@@ -7027,7 +7038,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.11";
+var SRV_VER = "AB-210-TRQ-1.1.12";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
