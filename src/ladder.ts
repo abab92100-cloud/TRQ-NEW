@@ -116,7 +116,7 @@ async function bounceZones(short: boolean): Promise<any[]> {
     if (staleOk) return _zoneCache.zones;
     return [];
   }
-  const win = ks.slice(-96); // 96 شمعة × 15 د = 24 ساعة
+  const win = ks.slice(-192); // 192 شمعة × 15 د = 48 ساعة (v1.1.14: نطاق أوسع = مناطق ارتداد مختبرة أكثر وانتظار أقل)
   // فراكتال 5 شموع: قاع/قمة محلية مختبرة ارتد منها السعر فعلاً
   const pts: any[] = [];
   for (let i = 2; i < win.length - 2; i++) {
