@@ -398,6 +398,7 @@ function SettingsScreen() {
   const [tpNet, setTpNet] = useState(c.tpNet ?? 0.12);
   const [tpUsd, setTpUsd] = useState<(number|string)>(c.tpUsd ?? 1);
   const [bal, setBal] = useState(c.cycleBalance);
+  const [eb, setEb] = useState(c.entryBoost ?? 3);
   const [dirMode, setDirMode] = useState(c.directionMode);
   const [mode, setMode] = useState(c.mode);
   const [tone, setTone] = useState(S.sound ? (S.soundTone || 'soft') : 'mute');
@@ -457,6 +458,7 @@ function SettingsScreen() {
           <div><label className="lb">جني $ — لم يعد مستخدمًا (الهدف نسبي تلقائي v1.1.7)</label><input className="field" inputMode="decimal" value={tpNet} onChange={e => setTpNet(e.target.value)} /></div>
           <div><label className="lb">🎯 الهدف النسبي التلقائي (v1.1.7): نسبة من الحجم المنفذ + حد أدنى 3× العمولة</label><input className="field" inputMode="decimal" value={tpUsd} onChange={e => setTpUsd(e.target.value)} placeholder="تلقائي بالكامل — الحقل غير مستخدم" /></div>
           <div><label className="lb">رصيد الدورة $</label><input className="field" inputMode="decimal" value={bal} onChange={e => setBal(e.target.value)} /></div>
+          <div><label className="lb">قوة الدخول × (أول دخول مضاعف 1-6)</label><input className="field" inputMode="numeric" value={eb} onChange={e => setEb(e.target.value)} /></div>
           <div>
             <label className="lb">الاتجاه</label>
             <select className="field" value={dirMode} onChange={e => setDirMode(e.target.value)}>
@@ -478,7 +480,7 @@ function SettingsScreen() {
           ))}
         </div>
         <button className="btn acc" style={{ marginTop: 12, width: '100%' }}
-          onClick={() => saveCfg({ symbol, leverage: lev, levels, gridStepPct: step, huntPct: hunt, tpNet, tpUsd, cycleBalance: bal, directionMode: dirMode, mode, sound: tone !== 'mute', soundTone: tone === 'mute' ? 'soft' : tone })}>
+          onClick={() => saveCfg({ symbol, leverage: lev, levels, gridStepPct: step, huntPct: hunt, tpNet, tpUsd, cycleBalance: bal, entryBoost: eb, directionMode: dirMode, mode, sound: tone !== 'mute', soundTone: tone === 'mute' ? 'soft' : tone })}>
           حفظ المعاملات
         </button>
       </div>

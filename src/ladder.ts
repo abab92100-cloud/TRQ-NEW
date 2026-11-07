@@ -11,7 +11,7 @@
 //   وكل جزء يُوزَّع على أوامره الأربعة تصاعدياً ×1.25 (الأمر الأول أصغرها دائماً).
 // · الدخول منظم: لا مجموعة أولى إلا عبر بوابة المحرك entryGateOpen()
 //   (الدراسة + دور التسلسل + ملكية العملة + قاعدة الخمسة) — لا فتح فوضوي.
-import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen, fetchKlines, fetchKlinesCached } from './engine';
+import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen, fetchKlines, fetchKlinesCached, entryBoost } from './engine';
 
 const GROUP_SIZE = 4;
 const SPACINGS = [0.30, 0.40, 0.50, 0.60, 0.70];                    // % بين كل أمر والذي يليه داخل المجموعة
@@ -176,7 +176,7 @@ async function placeGroupBounce(g: number) {
     for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
       const z = chosen[k];
       const mult = S.multiplier || 1;
-      let q = (part * fr[k]) / (mult * z.px);
+      let q = (part * fr[k] * (k === 0 ? entryBoost() : 1)) / (mult * z.px); // أول دخول عند أفضل منطقة بحجم مضاعف (أمر المالك 7 نوفمبر)
       q = capEntryQty(q, z.px);
       if (!(q >= 1)) continue;
       S.grid.push({
@@ -242,7 +242,7 @@ function placeGroup(g: number, anchor: number) {
     const px = short ? anchor * (1 + k * sp) : anchor * (1 - k * sp);
     if (!(px > 0)) continue;
     const mult = S.multiplier || 1;
-    let q = budgets[k] / (mult * px);
+    let q = (budgets[k] * (k === 0 ? entryBoost() : 1)) / (mult * px); // أول أمر بالمجموعة بحجم مضاعف قوة الدخول
     q = capEntryQty(q, px);
     if (!(q >= 1)) continue;
     S.grid.push({

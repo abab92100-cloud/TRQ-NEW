@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.10 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.10" --notes "درس «الشارت ثقيل والفريم لا يفتح ولا صفقة»: شموع الشارت أصبحت تُجلب عبر السيرفر المحلي بكاش مشترك وأولوية على المسح الشامل، ونسخة قديمة تُعرض عند رفض المنصة بدل شاشة انتظار — والرادار صار مشتركاً بين المحركات الخمسة: مسح واحد يخدم الأسطول كله بدل خمسة مسوح (خُمس طلبات المنصة) — ورسم الشارت صار مرة واحدة لكل إطار عرض بدل رسم متكرر" --latest 2>/dev/null || \
-            gh release upload v1.1.10 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.11 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.11" --notes "قوة الدخول v1.1.11 (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة أصبح بحجم مضاعف ×3 (قابل للضبط 1-6 من الإعدادات) بدل أصغر أمر في السلم — فالمنطقة الممتازة تستحق حجماً مميزاً والإضافات العميقة تبقى بتدرجها المحافظ، وسقف الأمر المنفرد يظل نصيب المحرك كاملاً لا يتجاوزه أبداً" --latest 2>/dev/null || \
+            gh release upload v1.1.11 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
