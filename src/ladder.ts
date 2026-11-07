@@ -2,8 +2,9 @@
 // مواصفة المالك (5 نوفمبر) حرفياً:
 // · كل صفقة = 5 مجموعات × 4 أوامر. التباعد داخل المجموعة g:
 //   [0.30% ، 0.40% ، 0.50% ، 0.60% ، 0.70%] بين كل أمر والذي يليه.
-// · اكتملت المجموعة g (نفّذت أوامرها الأربعة) → توقف الدخول مدة WAITS[g]:
-//   2 ساعة بعد الأولى، 3 ساعات بعد الثانية، 4 ساعات بعد الثالثة، 4 ساعات بعد الرابعة.
+// · اكتملت المجموعة g (نفّذت أوامرها الأربعة) → توقف الدخول مدة قابلة للضبط
+//   (v1.1.12 «تسليح مستمر» أمر المالك 7 نوفمبر): 20/30/40/40 دقيقة افتراضياً —
+//   من إعداد «انتظار المجموعات» في التطبيق، فتسلّح المجموعة التالية بلا انتظار طويل.
 // · خلال الانتظار يُتتبَّع أعلى سعر وصل له السعر (شورت) / أدنى سعر (لونغ).
 // · تم الجني أثناء الانتظار → تصفير السلم كاملاً ومجموعة أولى جديدة بعد الدراسة.
 // · انتهى الانتظار بلا جني → مجموعة جديدة مرساتها ذلك الأقصى (أول أمر عنده).
@@ -15,7 +16,17 @@ import { S, pushLog, emit, capEntryQty, fmtPx, fmtUsd, entryGateOpen, fetchKline
 
 const GROUP_SIZE = 4;
 const SPACINGS = [0.30, 0.40, 0.50, 0.60, 0.70];                    // % بين كل أمر والذي يليه داخل المجموعة
-const WAITS_MS = [2 * 3600e3, 3 * 3600e3, 4 * 3600e3, 4 * 3600e3];  // توقف الدخول بعد اكتمال المجموعة g
+// v1.1.12 «تسليح مستمر»: الانتظار بين المجموعات بالدقائق — w دقيقة (الإعداد groupWaitMin،
+// افتراضي 20، مدى 5-240) × [1، 1.5، 2، 2] حسب المجموعة — بدل ساعات الانتظار القديمة
+function groupWaitMs(g: number){
+  const w = Math.max(5, Math.round(Number(S.config && S.config.groupWaitMin) || 20));
+  const m = [1, 1.5, 2, 2][Math.min(g, 3)];
+  return Math.round(w * m * 60000);
+}
+export function waitsDesc(){
+  const w = Math.max(5, Math.round(Number(S.config && S.config.groupWaitMin) || 20));
+  return [1, 1.5, 2, 2].map(x => Math.round(w * x) + 'm').join('/');
+}
 const ASC = 1.25;                                                    // تصاعد حجم الأمر داخل المجموعة
 
 export function ladderOn() { return !!(S.config && S.config.ladderMode); }
@@ -326,12 +337,12 @@ export function ladderTick(price: number) {
   const filled = cur.filter(l => l.status === 'filled' || l.filledAt).length;
   if (filled < total) return;                          // لم تُنفَّذ المسلحة بعد — لا انتظار
   if (!stNow.waitUntil) {
-    const w = WAITS_MS[Math.min(stNow.group, WAITS_MS.length - 1)];
+    const w = groupWaitMs(stNow.group);
     stNow.waitUntil = Date.now() + w;
     stNow.winExtreme = price;
     stNow.harvestAtStart = S.cycleHarvested || 0;
     pushLog('server', '[ladder] نُفِّذت أوامر المجموعة ' + (stNow.group + 1) + '/5 كاملة — توقف الدخول ' +
-      (w / 3600e3) + ' ساعات، يُتتبَّع ' + (short ? 'أعلى' : 'أدنى') + ' سعر وصل له السعر خلالها');
+      (Math.round(w / 60000)) + ' دقيقة، يُتتبَّع ' + (short ? 'أعلى' : 'أدنى') + ' سعر وصل له السعر خلالها');
     emit(); return;
   }
   if (Date.now() < stNow.waitUntil) {

@@ -92,8 +92,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.11 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.11" --notes "قوة الدخول v1.1.11 (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة أصبح بحجم مضاعف ×3 (قابل للضبط 1-6 من الإعدادات) بدل أصغر أمر في السلم — فالمنطقة الممتازة تستحق حجماً مميزاً والإضافات العميقة تبقى بتدرجها المحافظ، وسقف الأمر المنفرد يظل نصيب المحرك كاملاً لا يتجاوزه أبداً" --latest 2>/dev/null || \
-            gh release upload v1.1.11 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
+          gh release create v1.1.12 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --title "AB-210-TRQ v1.1.12" --notes "تسليح مستمر v1.1.12 (أمر المالك 7 نوفمبر): انتظار المجموعات صار بالدقائق بدل الساعات — 20 دقيقة افتراضياً قابل للضبط من الإعدادات (5-240) بدل 2/3/4/4 ساعات، فتكتمل مجموعة فتسلّح التي تليها بعد انتظار قصير — تسليح وجني متواصلان، مع بقاء كل قواعد الحماية كما هي: سقف الأمر المنفرد نصيب المحرك، سقف التعرض، دراسة مناطق الارتداد، ولا إغلاق بخسارة أبداً" --latest 2>/dev/null || \
+            gh release upload v1.1.12 releases/AB-210-TRQ-latest.apk releases/trg-server.mjs --clobber
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
