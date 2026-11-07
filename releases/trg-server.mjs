@@ -455,7 +455,7 @@ async function bounceZones(short) {
   const staleOk = _zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 12 * 36e5;
   let ks = [];
   try {
-    ks = await fetchKlines(sym, 15);
+    ks = await fetchKlinesCached(sym, 15);
     _zoneFails = 0;
     S._zonesOkAt = Date.now();
   } catch (e) {
@@ -1590,10 +1590,10 @@ async function hmacB64(secret, payload) {
   return btoa(String.fromCharCode(...new Uint8Array(sig2)));
 }
 var _kcPubLastAt = 0;
-async function kcPublic(path, timeout) {
+async function kcPublic(path, timeout, prio) {
   if (S._rlPubUntil && Date.now() < S._rlPubUntil) throw new Error("\u062A\u0647\u062F\u0626\u0629 \u062D\u0635\u0629 \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0639\u0627\u0645\u0629 \u2014 \u064A\u064F\u0639\u0627\u062F \u0628\u0639\u062F \u0642\u0644\u064A\u0644");
   const _gap = Date.now() - _kcPubLastAt;
-  if (_kcPubLastAt && _gap > 0 && _gap < 150) {
+  if (!prio && _kcPubLastAt && _gap > 0 && _gap < 150) {
     await new Promise((r) => setTimeout(r, 150 - _gap));
   }
   _kcPubLastAt = Date.now();
@@ -1665,12 +1665,32 @@ var fetchTape = (s) => kcPublic("/api/v1/trade/history?symbol=" + encodeURICompo
   _tapeFailsAt = Date.now();
   throw e;
 });
-function fetchKlines(symbol2, gran) {
-  return kcPublic("/api/v1/kline/query?symbol=" + encodeURIComponent(symbol2) + "&granularity=" + gran, 6e3).then((a) => (a || []).map((r) => {
+function fetchKlines2(symbol2, gran, prio) {
+  return kcPublic("/api/v1/kline/query?symbol=" + encodeURIComponent(symbol2) + "&granularity=" + gran, 6e3, prio).then((a) => (a || []).map((r) => {
     let t = +r[0];
     if (t < 1e12) t *= 1e3;
     return { t, o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] || 0 };
   }).filter((k) => k.t > 0 && k.o > 0).sort((x, y) => x.t - y.t));
+}
+var _klineCache = {};
+async function fetchKlinesCached(symbol2, gran) {
+  const key = String(symbol2) + ":" + Number(gran || 15);
+  const e = _klineCache[key];
+  if (e && Date.now() - e.at < 12e3) return e.ks;
+  try {
+    const ks = await fetchKlines2(symbol2, gran, true);
+    if (ks && ks.length) {
+      _klineCache[key] = { at: Date.now(), okAt: Date.now(), ks };
+      return ks;
+    }
+    if (e) return e.ks;
+    return [];
+  } catch (err) {
+    if (e && Date.now() - e.okAt < 2 * 36e5) {
+      return e.ks;
+    }
+    throw err;
+  }
 }
 function radarScore(x) {
   let sc = 50;
@@ -1919,6 +1939,15 @@ async function scanRadar() {
   if (S._radarBusy) return S.radar;
   S._radarBusy = true;
   try {
+    if (S._sharedRadar && S._sharedRadar.list && S._sharedRadar.list.length && Date.now() - (S._sharedRadar.at || 0) < 12e4) {
+      let flist2 = S._sharedRadar.list;
+      if (FLEET_MODE()) {
+        const taken = S._fleetTaken || [];
+        if (taken.length) flist2 = flist2.filter((l) => l.symbol === S.config.symbol || !taken.includes(l.symbol));
+      }
+      S.radar = { at: S._sharedRadar.at, list: flist2 };
+      return S.radar;
+    }
     const all = await kcPublic("/api/v1/contracts/active", 6e3);
     const rows0 = (all || []).filter((c) => c && c.symbol && /USDTM$/i.test(c.symbol) && c.status === "Open").map((c) => ({
       symbol: c.symbol,
@@ -1970,7 +1999,7 @@ async function scanRadar() {
     const det = await Promise.all(preScored.slice(0, 30).map(async (r) => {
       const out = { ...r, vol: 0, spread: 0, trendPct: 0, price: 0 };
       try {
-        const ks = await fetchKlines(r.symbol, 15);
+        const ks = await fetchKlines2(r.symbol, 15);
         if (ks.length >= 20) {
           const last = ks.slice(-24);
           let v = 0;
@@ -2049,6 +2078,7 @@ async function scanRadar() {
       grade: r.preScore >= 65 ? "\u{1F7E2}" : r.preScore >= 45 ? "\u{1F7E1}" : "\u{1F534}"
     }));
     const list = [...deepList, ...rest];
+    S._radarFull = { at: Date.now(), list };
     const fundRanked = [...list].sort((a, b) => b.fundAnnPct - a.fundAnnPct);
     const oiRanked = [...list].sort((a, b) => b.oiUsd - a.oiUsd).slice(0, 5);
     const gridRanked = [...list].filter((x) => x.turnover > 2e6).sort((a, b) => b.rangePct - a.rangePct).slice(0, 5);
@@ -2961,7 +2991,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.9 waits 2h/3h/4h/4h main40% studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.10 waits 2h/3h/4h/4h main40% studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits 2h/3h/4h/4h asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -2979,6 +3009,15 @@ function alignStrategy(cfg) {
     pushLog("server", "\u{1F9EC} \u0645\u0648\u0627\u0621\u0645\u0629 \u0627\u0644\u0627\u0633\u062A\u0631\u0627\u062A\u064A\u062C\u064A\u0629: \u0639\u064F\u062F\u0651\u0644\u062A " + changed + " \u0642\u064A\u0645\u0629 \u0644\u062A\u0637\u0627\u0628\u0642 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u2014 " + strategyFingerprint());
   }
   return changed > 0;
+}
+function sharedRadarApply(radar) {
+  try {
+    if (!radar || !Array.isArray(radar.list) || !radar.list.length || !(radar.at > 0)) return false;
+    S._sharedRadar = { at: +radar.at, list: radar.list };
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 async function cleanStart() {
   S._entriesEnabled = false;
@@ -5392,7 +5431,7 @@ function studiedTpZone(pos, p) {
         S._tpResSym = S.config.symbol;
       }
       S._tpResAt = Date.now();
-      fetchKlines(S.config.symbol, 15).then((ks) => {
+      fetchKlinesCached(S.config.symbol, 15).then((ks) => {
         try {
           if (!ks || ks.length < 40) return;
           const win = ks.slice(-96);
@@ -6982,7 +7021,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.9";
+var SRV_VER = "AB-210-TRQ-1.1.10";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7121,6 +7160,23 @@ setInterval(() => {
   broadcastFleetGate().catch(() => {
   });
 }, 5e3).unref?.();
+var _lastSharedRadarAt = 0;
+async function shareRadar() {
+  let best = null;
+  for (let i = 1; i <= FLEET_N; i++) {
+    const r = slotStates[i] && slotStates[i]._radarFull;
+    if (r && r.list && r.list.length && r.at > 0 && (!best || r.at > best.at)) best = r;
+  }
+  if (!best || Date.now() - best.at > 18e4) return;
+  if (best.at <= _lastSharedRadarAt) return;
+  _lastSharedRadarAt = best.at;
+  await Promise.all(Array.from({ length: FLEET_N }, (_, i) => jfetch("http://127.0.0.1:" + (BASE_PORT + 1 + i) + "/cmd", 8e3, { action: "sharedRadar", radar: best }).catch(() => {
+  })));
+}
+setInterval(() => {
+  shareRadar().catch(() => {
+  });
+}, 3e4).unref?.();
 function mergedState(selIn = 0) {
   const live = [];
   for (let i = 1; i <= FLEET_N; i++) if (slotStates[i]) live.push(slotStates[i]);
@@ -7268,6 +7324,16 @@ var srv = createServer(async (req, res) => {
             return send(res, 200, resetState(), req);
           case "fleetGate":
             return send(res, 200, setFleetGate(j.opened, SLOT), req);
+          case "klines": {
+            try {
+              const ks = await fetchKlinesCached(String(j.symbol || S.config.symbol), Number(j.gran) || 15);
+              return send(res, 200, { ok: true, klines: ks }, req);
+            } catch (e) {
+              return send(res, 200, { ok: false, error: String(e && e.message || e) }, req);
+            }
+          }
+          case "sharedRadar":
+            return send(res, 200, { ok: sharedRadarApply(j.radar) }, req);
           case "ensureFour": {
             const need = ensureGroupFour();
             return send(res, 200, { ok: true, need }, req);
@@ -7358,6 +7424,20 @@ var srv = createServer(async (req, res) => {
           globalThis.__cycleBusy = false;
         });
         return send(res, 200, { ok: true, accepted: true }, req);
+      }
+      if (a === "klines") {
+        let slot = 1;
+        for (let i = 1; i <= FLEET_N; i++)
+          if (slotStates[i] && slotStates[i].config && slotStates[i].config.symbol === j.symbol) {
+            slot = i;
+            break;
+          }
+        try {
+          const r = await jfetch("http://127.0.0.1:" + (BASE_PORT + slot) + "/cmd", 8e3, { action: "klines", symbol: j.symbol, gran: j.gran });
+          return send(res, 200, r || { ok: false }, req);
+        } catch (e) {
+          return send(res, 200, { ok: false, error: String(e && e.message || e) }, req);
+        }
       }
       if (a === "haltState") return send(res, 200, { ok: true, halted: haltRequested() }, req);
       if (a === "resetAll") {
