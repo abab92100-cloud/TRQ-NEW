@@ -1195,8 +1195,10 @@ var S = {
     // الأساطيل حرة (أمر المالك 6 نوفمبر): كل محرك يضع منطقة دخوله فور اكتمال دراسته — لا انتظار على أسطول آخر
     entryBoost: 3,
     // قوة الدخول الأولى (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة بحجم مضاعف ×3 — قابل للضبط 1-6 من الإعدادات
-    groupWaitMin: 20
+    groupWaitMin: 20,
     // انتظار المجموعات بالدقائق (v1.1.12 «تسليح مستمر»): بدل 2/3/4/4 ساعات — 20 دقيقة افتراضياً، قابل للضبط 5-240
+    stickMin: 30
+    // مهلة الثبات بالدقائق (v1.1.13 «الثبات يصطاد»): لا تدوير طالما توجد مناطق مسلحة ضمن هذه المهلة — 30 دقيقة افتراضياً
   },
   status: "idle",
   heartbeat: 0,
@@ -1782,7 +1784,7 @@ async function backgroundPipeline() {
     const __radarAge = S.radar && S.radar.at ? Date.now() - S.radar.at : 1e12;
     const r = S.radar && S.radar.list && S.radar.list.length && __radarAge < 6e5 ? S.radar : await scanRadar();
     if (!r || !r.list || !r.list.length) return;
-    if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest) {
+    if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest && !stickyArmed()) {
       S.recentCoins = S.recentCoins || {};
       const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > 24 * 3600 * 1e3;
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
@@ -2157,7 +2159,7 @@ async function postHarvestReselect() {
       return Date.now() - t > 24 * 3600 * 1e3;
     };
     const cur = r.list.find((l) => l.symbol === S.config.symbol);
-    if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest) {
+    if (!S.position && !studying() && S.status === "running" && !fleetFullNow() && !S._holdAfterHarvest && !stickyArmed()) {
       S.recentCoins = S.recentCoins || {};
       const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > 24 * 3600 * 1e3;
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
@@ -2469,6 +2471,13 @@ async function maybeSwitchSymbol() {
   }
   if (Date.now() - _lastSwitchAt < 45e3) return;
   if (studying()) return;
+  if (stickyArmed()) {
+    if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
+      S._stickyLogAt = Date.now();
+      pushLog("server", "\u{1F3AF} \u062B\u0628\u0627\u062A \u0627\u0644\u0635\u064A\u062F: " + S.config.displaySymbol + " \u0641\u064A\u0647 " + armedPendingCount() + " \u0645\u0646\u0627\u0637\u0642 \u0645\u0633\u0644\u062D\u0629 \u062A\u0646\u062A\u0638\u0631 \u0627\u0644\u0633\u0639\u0631 \u2014 \u0644\u0627 \u062A\u062F\u0648\u064A\u0631 \u0642\u0628\u0644 \u062A\u0646\u0641\u064A\u0630\u0647\u0627 \u0623\u0648 \u0627\u0646\u0642\u0636\u0627\u0621 \u0645\u0647\u0644\u0629 \u0627\u0644\u062B\u0628\u0627\u062A");
+    }
+    return;
+  }
   try {
     const r = await scanRadar();
     if (!r || !r.list || !r.list.length) return;
@@ -3003,7 +3012,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.12 waits " + waitsDesc() + " main40% boost" + entryBoost() + " studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.13 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3707,6 +3716,31 @@ function resolveDirection(now) {
 }
 function entryBoost() {
   return clamp(Math.round(Number(S.config && S.config.entryBoost) || 3), 1, 6);
+}
+function armedPendingCount() {
+  try {
+    return (S.grid || []).filter((l) => !l.reduceOnly && !l.filledAt && (l.status === "armed" || l.status === "open")).length;
+  } catch {
+    return 0;
+  }
+}
+function stickyArmed() {
+  try {
+    if (!armedPendingCount()) return false;
+    let since = 0;
+    (S.grid || []).forEach((l) => {
+      if (!l.reduceOnly && !l.filledAt && (l.status === "armed" || l.status === "open")) {
+        const t = Number(l.createdAt) || 0;
+        if (t > 0 && (!since || t < since)) since = t;
+      }
+    });
+    if (!since && S._ladder && S._ladder.placedAt) since = Number(S._ladder.placedAt) || 0;
+    if (!since) return false;
+    const dwell = Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) * 6e4;
+    return Date.now() - since < dwell;
+  } catch {
+    return false;
+  }
 }
 function contractsForLevel(p) {
   const q = levelQtys(p, effLevels());
@@ -6757,6 +6791,7 @@ function saveCfg(v) {
   S.config.cycleBalance = Math.max(1, +v.cycleBalance || 100);
   if (v.entryBoost != null && v.entryBoost !== "") S.config.entryBoost = clamp(Math.round(+v.entryBoost) || 3, 1, 6);
   if (v.groupWaitMin != null && v.groupWaitMin !== "") S.config.groupWaitMin = clamp(Math.round(+v.groupWaitMin) || 20, 5, 240);
+  if (v.stickMin != null && v.stickMin !== "") S.config.stickMin = clamp(Math.round(+v.stickMin) || 30, 5, 240);
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
@@ -7038,7 +7073,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.12";
+var SRV_VER = "AB-210-TRQ-1.1.13";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
