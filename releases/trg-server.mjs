@@ -1836,7 +1836,7 @@ async function backgroundPipeline() {
       S.recentCoins = S.recentCoins || {};
       const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > diversityMs();
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
-      const curOk = curL && Number(curL.score || 0) >= 55;
+      const curOk = curL && Number(curL.score || 0) >= 55 && !(S._fleetTaken || []).map(String).includes(String(S.config.symbol));
       if (!curOk) {
         const taken = (S._fleetTaken || []).map((x) => String(x));
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
@@ -2245,7 +2245,7 @@ async function postHarvestReselect() {
       S.recentCoins = S.recentCoins || {};
       const freshC = (l) => Date.now() - (S.recentCoins[l.symbol] || 0) > diversityMs();
       const curL = r.list.find((l) => l.symbol === S.config.symbol);
-      const curOk = curL && Number(curL.score || 0) >= 55;
+      const curOk = curL && Number(curL.score || 0) >= 55 && !(S._fleetTaken || []).map(String).includes(String(S.config.symbol));
       if (!curOk) {
         const taken = (S._fleetTaken || []).map((x) => String(x));
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
@@ -3173,7 +3173,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.26 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.27 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -5558,7 +5558,13 @@ async function scalpHarvest(p) {
     const fees = q * mult * Number(p || 0) * 6e-4 * 2;
     const net = Number(S.position.unrealized) || 0;
     const floor = Math.max(0.05, Math.min(fees * 3, tpBase() * 0.9));
-    if (!(net >= floor)) return;
+    if (!(net >= floor)) {
+      if (Date.now() - openedAt >= 30 * 60 * 1e3 && net >= fees) {
+        pushLog("server", "\u{1F680} \u062A\u062D\u0631\u064A\u0631 \u0645\u0631\u0643\u0632 \u0645\u064A\u062A \xAB\u0635\u0627\u0631\u0648\u062E\xBB: " + Math.round((Date.now() - openedAt) / 6e4) + " \u062F\u0642\u064A\u0642\u0629 \u0628\u0644\u0627 \u062C\u0646\u064A \u2014 \u0635\u0627\u0641\u064A " + fmtUsd(net) + " \u064A\u063A\u0637\u064A \u0627\u0644\u0639\u0645\u0648\u0644\u0629 \u0643\u0627\u0645\u0644\u0629 \u2014 \u062A\u062D\u0631\u064A\u0631 \u0627\u0644\u0645\u062D\u0631\u0643 \u0644\u0644\u0635\u064A\u062F \u0641\u0648\u0631\u0627\u064B");
+        await flattenAt(p, "\u062A\u062D\u0631\u064A\u0631 \u0645\u0631\u0643\u0632 \u0645\u064A\u062A \u0635\u0627\u0631\u0648\u062E");
+      }
+      return;
+    }
     pushLog("server", "\u{1F3C3} \u062C\u0646\u064A \u0633\u0628\u0631\u0646\u062A \xAB\u0648\u0627\u0628\u0644\xBB (" + Math.round((Date.now() - openedAt) / 6e4) + " \u062F): \u0635\u0627\u0641\u064A " + fmtUsd(net) + " \u064A\u0628\u0644\u063A \u0627\u0644\u0623\u0631\u0636\u064A\u0629 (" + fmtUsd(floor) + ") \u2014 \u0627\u063A\u062A\u0646\u0627\u0645 \u0627\u0644\u0631\u0628\u062D \u0627\u0644\u0645\u062A\u0627\u062D \u0641\u0648\u0631\u0627\u064B \u0648\u062A\u062D\u0631\u064A\u0631 \u0627\u0644\u0645\u062D\u0631\u0643 \u0644\u0644\u0635\u0641\u0642\u0629 \u0627\u0644\u062A\u0627\u0644\u064A\u0629");
     await flattenAt(p, "\u062C\u0646\u064A \u0633\u0628\u0631\u0646\u062A \u0648\u0627\u0628\u0644");
   } catch {
@@ -7354,7 +7360,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.26";
+var SRV_VER = "AB-210-TRQ-1.1.27";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7681,11 +7687,14 @@ var srv = createServer(async (req, res) => {
     if (req.method === "GET" && u.pathname === "/fleet") {
       const i = parseInt(u.searchParams.get("i") || "0", 10) || 0;
       const taken = [];
+      const owners = /* @__PURE__ */ new Map();
       for (let k = 1; k <= FLEET_N; k++) {
-        if (k === i) continue;
         const st = slotStates[k];
-        if (st && st.config && st.config.symbol) taken.push({ sym: st.config.symbol, holder: k });
+        const sym = st && st.config && st.config.symbol ? String(st.config.symbol) : "";
+        if (!sym) continue;
+        if (!owners.has(sym) || k < owners.get(sym)) owners.set(sym, k);
       }
+      for (const [sym, holder] of owners) if (holder !== i) taken.push({ sym, holder });
       return send(res, 200, { ok: true, taken }, req);
     }
     if (req.method === "GET" && u.pathname === "/state") {
