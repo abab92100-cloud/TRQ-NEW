@@ -1822,7 +1822,7 @@ async function backgroundPipeline() {
       if (!curOk) {
         const taken = (S._fleetTaken || []).map((x) => String(x));
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
-        const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 68 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)));
+        const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 68 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
         const best = qual.length ? qual[(SL - 1) % qual.length] : null;
         if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 18e4)) {
           S._oppPickAt = Date.now();
@@ -1851,7 +1851,7 @@ async function backgroundPipeline() {
       }
     }
     const __tkHide = (S._fleetTaken || []).map((x) => String(x));
-    const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55 && !__tkHide.includes(String(l.symbol)));
+    const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55 && !__tkHide.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
     if (!cands.length) return;
     const nxt = cands[0];
     S._nextReady = true;
@@ -2095,6 +2095,9 @@ async function scanRadar() {
         score: s.score,
         why: s.why,
         state: d.state || "\u2014",
+        // v1.1.20 «وسط»: السبريد المقاس يُحمل مع القائمة — الفلترة المسبقة تمنع
+        // تحجير المحرك على عملة سبريدها يحكم عليها بفيتو دائم (درس 10000REKT 0.30%)
+        spread: +(d.spread || 0).toFixed(3),
         vol: +d.vol.toFixed(2),
         chg: Math.round(d.chg * 10) / 10,
         turnover: d.turnover,
@@ -2212,7 +2215,7 @@ async function postHarvestReselect() {
       if (!curOk) {
         const taken = (S._fleetTaken || []).map((x) => String(x));
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
-        const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 68 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)));
+        const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 68 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
         const best = qual.length ? qual[(SL - 1) % qual.length] : null;
         if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 18e4)) {
           S._oppPickAt = Date.now();
@@ -2518,7 +2521,34 @@ async function maybeSwitchSymbol() {
   if (Date.now() - _lastSwitchAt < 45e3) return;
   if (studying()) return;
   if (stickyArmed()) {
-    if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
+    if (vetoStuck()) {
+      const tkEsc = (S._fleetTaken || []).map((x) => String(x));
+      const alt = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc.includes(String(l.symbol)) && !(l.spread > 0.2)).find((l) => (l.score || 0) >= 55);
+      if (alt) {
+        _lastSwitchAt = Date.now();
+        pushLog("server", "\u{1F513} \u062A\u062D\u0631\u064A\u0631 \u0645\u0646 \u0627\u0644\u0641\u064A\u062A\u0648: " + S.config.displaySymbol + " \u0645\u0646\u0627\u0637\u0642\u0647\u0627 \u0645\u0633\u0644\u062D\u0629 \u0645\u0646\u0630 " + Math.round((Date.now() - (Number(S._dwellAt) || Date.now())) / 6e4) + " \u062F \u0648\u0627\u0644\u0641\u064A\u062A\u0648 \u0631\u0641\u0636 \u0643\u0644 \u062F\u062E\u0648\u0644 \u2014 \u0627\u0646\u062A\u0642\u0627\u0644 \u0625\u0644\u0649 " + alt.disp + " (" + alt.score + ") \u0628\u062F\u0644 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631");
+        toast("\u{1F513} \u0627\u0646\u062A\u0642\u0627\u0644: " + alt.disp + " \u2014 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0628\u062F\u0644 \u0627\u0644\u0641\u064A\u062A\u0648");
+        saveCfg({
+          symbol: alt.symbol,
+          leverage: S.config.leverage,
+          levels: S.config.levels,
+          gridStepPct: S.config.gridStepPct,
+          huntPct: S.config.huntPct,
+          tpNet: S.config.tpNet,
+          tpUsd: S.config.tpUsd,
+          cycleBalance: S.config.cycleBalance,
+          directionMode: S.config.directionMode,
+          mode: S.config.mode,
+          sound: S.sound,
+          soundTone: S.soundTone
+        });
+        return;
+      }
+      if (!S._vetoEscAt || Date.now() - S._vetoEscAt > 6e5) {
+        S._vetoEscAt = Date.now();
+        pushLog("server", "\u{1F513} \u0627\u0644\u0641\u064A\u062A\u0648 \u064A\u062D\u062A\u062C\u0632 " + S.config.displaySymbol + " \u0648\u0644\u0627 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0645\u0624\u0647\u0644 \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0641\u0631\u0635\u0629");
+      }
+    } else if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
       S._stickyLogAt = Date.now();
       pushLog("server", "\u{1F3AF} \u062B\u0628\u0627\u062A \u0627\u0644\u0635\u064A\u062F: " + S.config.displaySymbol + " \u0641\u064A\u0647 " + armedPendingCount() + " \u0645\u0646\u0627\u0637\u0642 \u0645\u0633\u0644\u062D\u0629 \u062A\u0646\u062A\u0638\u0631 \u0627\u0644\u0633\u0639\u0631 \u2014 \u0644\u0627 \u062A\u062F\u0648\u064A\u0631 \u0642\u0628\u0644 \u062A\u0646\u0641\u064A\u0630\u0647\u0627 \u0623\u0648 \u0627\u0646\u0642\u0636\u0627\u0621 \u0645\u0647\u0644\u0629 \u0627\u0644\u062B\u0628\u0627\u062A");
     }
@@ -2529,7 +2559,7 @@ async function maybeSwitchSymbol() {
     if (!r || !r.list || !r.list.length) return;
     const cur = r.list.find((l) => l.symbol === S.config.symbol);
     const __tkSw = (S._fleetTaken || []).map((x) => String(x));
-    const best = r.list.filter((l) => l.symbol !== S.config.symbol && !__tkSw.includes(String(l.symbol))).find((l) => (l.score || 0) >= 55);
+    const best = r.list.filter((l) => l.symbol !== S.config.symbol && !__tkSw.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2)).find((l) => (l.score || 0) >= 55);
     if (!best) return;
     const afterHarvest = !!(S._harvestAt && Date.now() - S._harvestAt < 10 * 60 * 1e3);
     const idleMs = Date.now() - (S._dwellAt || S.startedAt || S._savedAt || Date.now());
@@ -3059,7 +3089,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.19 fleet-spread waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.20 fleet-spread veto-escape waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4860,6 +4890,22 @@ function dangerVeto(_p) {
   if (short && fund < -1e-3) return "\u062A\u0645\u0648\u064A\u0644 \u0645\u0631\u062A\u0641\u0639 \u062C\u062F\u064B\u0627 \u0636\u062F \u0627\u0644\u0634\u0648\u0631\u062A";
   return null;
 }
+function vetoStuck() {
+  try {
+    if (S.position) return false;
+    const arr = S._vetoTimes || [];
+    const cut = Date.now() - 10 * 60 * 1e3;
+    let n = 0;
+    for (const t of arr) if (Number(t) > cut) n++;
+    if (n < 5) return false;
+    const dwell = Number(S._dwellAt) || 0;
+    if (!dwell || Date.now() - dwell < 8 * 60 * 1e3) return false;
+    for (const l of S.grid || []) if (l.filledAt && Number(l.filledAt) > dwell) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 function huntSignals(p) {
   const short = S.config.direction === "short";
   const sig2 = [];
@@ -5137,6 +5183,11 @@ function huntTrigger(p) {
   }
   const veto = dangerVeto(p);
   if (veto) {
+    try {
+      (S._vetoTimes = S._vetoTimes || []).push(Date.now());
+      if (S._vetoTimes.length > 40) S._vetoTimes = S._vetoTimes.slice(-40);
+    } catch {
+    }
     if (!S._vetoAt || Date.now() - S._vetoAt > 12e4) {
       S._vetoAt = Date.now();
       pushLog("info", "\u0641\u064A\u062A\u0648 \u062E\u0637\u0631 \u0645\u0646\u0639 \u0635\u0641\u0642\u0629: " + veto);
@@ -6945,6 +6996,7 @@ function saveCfg(v) {
       pushLog("server", "\u{1F9F9} \u0623\u064F\u0644\u063A\u064A\u062A " + __staleOpen.length + " \u0635\u0641\u0642\u0627\u062A \u0627\u0644\u0632\u0648\u062C \u0627\u0644\u0633\u0627\u0628\u0642 \u0627\u0644\u0645\u0641\u062A\u0648\u062D\u0629 \u2014 \u0633\u064A\u0627\u0642 \u0642\u062F\u064A\u0645 \u0644\u0627 \u064A\u064F\u0642\u0641\u0644 \u0628\u0639\u0645\u0644\u0629 \u062C\u062F\u064A\u062F\u0629");
     }
     S._dwellAt = Date.now();
+    S._vetoTimes = [];
     S._slideHi = null;
     S._slideHiAt = 0;
     S._slideLo = null;
@@ -7144,7 +7196,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.19";
+var SRV_VER = "AB-210-TRQ-1.1.20";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7651,7 +7703,7 @@ else {
     try {
       if (S.status === "idle" && !haltRequested() && !S._holdAfterHarvest) {
         startBot();
-        pushLog("server", "\u267B\uFE0F \u0627\u0633\u062A\u0626\u0646\u0627\u0641 \u062A\u0644\u0642\u0627\u0626\u064A \u0644\u0644\u0645\u062D\u0631\u0643 " + SLOT + " \u2014 \u0644\u0627 \u0645\u0641\u062A\u0627\u062D \u0625\u064A\u0642\u0627\u0641 \u0648\u0644\u0627 \u0645\u0624\u0642\u062A\u060C \u0627\u0633\u062A\u0643\u0645\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u0644\u0627 \u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644 (v1.1.18)");
+        pushLog("server", "\u267B\uFE0F \u0627\u0633\u062A\u0626\u0646\u0627\u0641 \u062A\u0644\u0642\u0627\u0626\u064A \u0644\u0644\u0645\u062D\u0631\u0643 " + SLOT + " \u2014 \u0644\u0627 \u0645\u0641\u062A\u0627\u062D \u0625\u064A\u0642\u0627\u0641 \u0648\u0644\u0627 \u0645\u0624\u0642\u062A\u060C \u0627\u0633\u062A\u0643\u0645\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u0644\u0627 \u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644 (" + SRV_VER.replace("AB-210-TRQ-", "v") + ")");
       }
     } catch {
     }
