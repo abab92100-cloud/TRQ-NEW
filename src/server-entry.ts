@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.26';
+const SRV_VER = 'AB-210-TRQ-1.1.27';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -279,13 +279,21 @@ const srv = createServer(async (req, res) => {
 
     /* المنسّق: assembly & dashboard */
     if (req.method === 'GET' && u.pathname === '/fleet') {
+      /* ─── v1.1.27 «صاروخ» (شكوى المالك: «كل المحركات على عملة واحدة
+         ولا أوامر»): ملكية العملة للأقدم رقماً فقط — الجثم الجماعي كان
+         يحجز كل محرك جاثم (لا دخول لملكها) ولا يطرده أحد. الآن: كل
+         عملة يملكها أدنى رقم محرك عليها، والمحركات الأعلى تراها
+         محجوزة فتخليها فوراً لعملاتهم الخاصة ─── */
       const i = parseInt(u.searchParams.get('i') || '0', 10) || 0;
       const taken: any[] = [];
+      const owners = new Map();
       for (let k = 1; k <= FLEET_N; k++) {
-        if (k === i) continue;
         const st = slotStates[k];
-        if (st && st.config && st.config.symbol) taken.push({ sym: st.config.symbol, holder: k });
+        const sym = st && st.config && st.config.symbol ? String(st.config.symbol) : '';
+        if (!sym) continue;
+        if (!owners.has(sym) || k < (owners.get(sym) as number)) owners.set(sym, k);
       }
+      for (const [sym, holder] of owners) if (holder !== i) taken.push({ sym, holder });
       return send(res, 200, { ok: true, taken }, req);
     }
 
