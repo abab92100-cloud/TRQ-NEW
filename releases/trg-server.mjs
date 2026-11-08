@@ -1181,7 +1181,7 @@ var S = {
     levels: 12,
     direction: "short",
     directionMode: "auto",
-    cycleBalance: 100,
+    cycleBalance: 5e3,
     mode: "paper",
     tpNet: 0.12,
     tpUsd: 1,
@@ -1215,6 +1215,8 @@ var S = {
   _awaitFreshStudy: false,
   _startGateAt: 0,
   // مفتاحا «مؤقت» و«تشغيل بعد الدراسة» (أمر المالك 6 نوفمبر)
+  _capHintAt: 0,
+  // تنبيه رأس المال الصغير (v1.1.15) — مرة واحدة لكل جلسة
   exPositions: [],
   _flatStrikes: 0,
   _flatConfirmed: false,
@@ -3014,7 +3016,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.14 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.15 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied cap5k" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -6548,6 +6550,13 @@ function startBot() {
     pushLog("server", "\u2699\uFE0F \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0641\u0639\u0651\u0627\u0644\u0629: " + (S.config.mode === "live" ? "\u062D\u0642\u064A\u0642\u064A" : "\u0648\u0631\u0642\u064A") + " \xB7 " + S.config.displaySymbol + " \xB7 \u0631\u0627\u0641\u0639\u0629 " + S.config.leverage + "\xD7 \xB7 \u0645\u0633\u062A\u0648\u064A\u0627\u062A " + S.config.levels + " \xB7 \u062E\u0637\u0648\u0629 " + S.config.gridStepPct + "% \xB7 \u0635\u064A\u062F " + S.config.huntPct + "% \xB7 \u062C\u0646\u064A \u0646\u0633\u0628\u064A \u0645\u0646 \u0627\u0644\u062D\u062C\u0645 \u0627\u0644\u0645\u0646\u0641\u0630 + \u062D\u062F \u0623\u062F\u0646\u0649 3\xD7 \u0627\u0644\u0639\u0645\u0648\u0644\u0629 (v1.1.7) \xB7 \u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629 " + S.config.cycleBalance + "$ \xB7 \u062D\u062F \u0627\u0644\u0623\u0648\u0627\u0645\u0631 " + (S._cycleMaxFills || 4));
   } catch {
   }
+  try {
+    if (S.config.mode !== "live" && (Number(S.config.cycleBalance) || 0) < 200 && !S._capHintAt) {
+      S._capHintAt = Date.now();
+      pushLog("server", "\u26A0\uFE0F \u0646\u0635\u064A\u0628 \u0647\u0630\u0627 \u0627\u0644\u0645\u062D\u0631\u0643 " + S.config.cycleBalance + "$ \u0641\u0642\u0637 \u2014 \u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0633\u062A\u0643\u0648\u0646 \u0628\u0636\u0639\u0629 \u062F\u0648\u0644\u0627\u0631\u0627\u062A \u0648\u062C\u0646\u064A\u0647\u0627 \u0633\u0646\u062A\u064A\u0645\u0627\u062A. \u0627\u0631\u0641\u0639 \xAB\u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629\xBB \u0645\u0646 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A (\u0631\u0635\u064A\u062F \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0627\u0644\u0643\u0644\u064A \u2014 \u064A\u064F\u0642\u0633\u064E\u0651\u0645 \u0639\u0644\u0649 5 \u0645\u062D\u0631\u0643\u0627\u062A) \u0644\u062A\u0635\u0628\u062D \u0627\u0644\u0635\u0641\u0642\u0627\u062A \u0628\u0630\u0627\u062A \u0645\u0639\u0646\u0649");
+    }
+  } catch {
+  }
   if (R()) {
     remoteCmd("start").then(() => remoteSync());
     return;
@@ -7079,7 +7088,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.14";
+var SRV_VER = "AB-210-TRQ-1.1.15";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
