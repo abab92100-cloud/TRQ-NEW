@@ -1704,10 +1704,23 @@ function fetchKlines2(symbol2, gran, prio) {
   }).filter((k) => k.t > 0 && k.o > 0).sort((x, y) => x.t - y.t));
 }
 var _klineCache = {};
+var _klineBgAt = {};
 async function fetchKlinesCached(symbol2, gran) {
   const key = String(symbol2) + ":" + Number(gran || 15);
   const e = _klineCache[key];
   if (e && Date.now() - e.at < 12e3) return e.ks;
+  if (e && e.ks && e.ks.length && Date.now() - e.at < 6e4) {
+    if (Date.now() - (_klineBgAt[key] || 0) > 1e4) {
+      _klineBgAt[key] = Date.now();
+      fetchKlines2(symbol2, gran, true).then((ks) => {
+        if (ks && ks.length) {
+          _klineCache[key] = { at: Date.now(), okAt: Date.now(), ks };
+        }
+      }).catch(() => {
+      });
+    }
+    return e.ks;
+  }
   try {
     const ks = await fetchKlines2(symbol2, gran, true);
     if (ks && ks.length) {
@@ -1969,6 +1982,8 @@ var FLEET_MODE = () => !!(typeof process !== "undefined" && process.env && proce
 async function scanRadar() {
   if (S._radarBusy) return S.radar;
   S._radarBusy = true;
+  if (S._radarCoolUntil && Date.now() < S._radarCoolUntil) return S.radar;
+  const _scanAt = Date.now();
   try {
     if (S._sharedRadar && S._sharedRadar.list && S._sharedRadar.list.length && Date.now() - (S._sharedRadar.at || 0) < 12e4) {
       let flist2 = S._sharedRadar.list;
@@ -2052,6 +2067,13 @@ async function scanRadar() {
       }
       return out;
     }));
+    if ((S._rlPubUntil || 0) > _scanAt) {
+      S._radarCoolUntil = Date.now() + 18e4;
+      if (!S._radarCoolLogAt || Date.now() - S._radarCoolLogAt > 6e5) {
+        S._radarCoolLogAt = Date.now();
+        pushLog("server", "\u{1F9CA} \u062A\u0628\u0631\u064A\u062F \u0627\u0644\u0631\u0627\u062F\u0627\u0631 3 \u062F\u0642\u0627\u0626\u0642 (\u0631\u0641\u0636 \u0627\u0644\u0645\u0646\u0635\u0629 429) \u2014 \u0627\u0644\u0623\u0648\u0644\u0648\u064A\u0629 \u0627\u0644\u0622\u0646 \u0644\u0644\u062F\u0631\u0627\u0633\u0627\u062A \u0648\u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0648\u0627\u0644\u0634\u0627\u0631\u062A");
+      }
+    }
     const deepList = det.filter((d) => d.price > 0).map((d) => {
       const s = radarScore(d);
       const fundAnn = (d.funding || 0) * (24 / (d.fundHrs || 8)) * 100;
@@ -2505,7 +2527,7 @@ async function maybeSwitchSymbol() {
     const idleMs = Date.now() - (S._dwellAt || S.startedAt || S._savedAt || Date.now());
     const barren = idleMs > 15 * 60 * 1e3;
     if (barren && best) {
-      if (S.config.bounceMode !== false && !((S._zonesOkAt || 0) > (S._dwellAt || 0))) {
+      if (S.config.bounceMode !== false && !((S._zonesOkAt || 0) > (S._dwellAt || 0)) && Date.now() - (S._dwellAt || 0) < 25 * 60 * 1e3) {
         if (!S._barrenHoldAt || Date.now() - S._barrenHoldAt > 5 * 60 * 1e3) {
           S._barrenHoldAt = Date.now();
           pushLog("server", "\u23F8\uFE0F \u062F\u0648\u0631\u0627\u0646 \u0627\u0644\u0628\u0648\u0631\u0629 \u0645\u0624\u062C\u0644: \u0645\u0646\u0627\u0637\u0642 " + S.config.displaySymbol + " \u0644\u0645 \u062A\u064F\u062F\u0631\u0633 \u0628\u0639\u062F \u2014 \u0627\u0644\u0645\u0646\u0635\u0629 \u062A\u0631\u0641\u0636 \u0627\u0644\u0637\u0644\u0628\u0627\u062A\u060C \u0627\u0644\u062F\u0648\u0631\u0627\u0646 \u0644\u0646 \u064A\u0641\u064A\u062F");
@@ -3029,7 +3051,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.17 lab-tuned waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.18 no-stall waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -7085,6 +7107,17 @@ function initEngine() {
     scanRadar().catch(() => {
     });
   }, 45e3);
+  const _preSlotMs = ((Number(S._mySlot) || 1) - 1) * 5e3;
+  const chartPrewarm = () => {
+    try {
+      for (const g of [1, 5, 15, 60, 240]) fetchKlinesCached(S.config.symbol, g).catch(() => {
+      });
+    } catch (e) {
+      logSwallow("silent-catch", e);
+    }
+  };
+  setTimeout(chartPrewarm, 3e4 + _preSlotMs);
+  setInterval(chartPrewarm, 3e4);
   logRevival();
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
@@ -7103,7 +7136,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.17";
+var SRV_VER = "AB-210-TRQ-1.1.18";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7605,4 +7638,15 @@ srv.listen(PORT, "127.0.0.1", () => {
   }
 });
 if (SLOT === 0) console.log("[AB-210-TRQ] \u0627\u0644\u0645\u0646\u0633\u0651\u0642 \u062C\u0627\u0647\u0632 \u2014 \u0634\u063A\u0651\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0641\u064A \u0627\u0644\u062C\u0648\u0627\u0644 (\u064A\u0643\u062A\u0634\u0641 \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627) \u2014 \u0644\u0627 \u0645\u062D\u0631\u0643 \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0633\u0651\u0642");
-else initEngine();
+else {
+  initEngine();
+  setTimeout(() => {
+    try {
+      if (S.status === "idle" && !haltRequested() && !S._holdAfterHarvest) {
+        startBot();
+        pushLog("server", "\u267B\uFE0F \u0627\u0633\u062A\u0626\u0646\u0627\u0641 \u062A\u0644\u0642\u0627\u0626\u064A \u0644\u0644\u0645\u062D\u0631\u0643 " + SLOT + " \u2014 \u0644\u0627 \u0645\u0641\u062A\u0627\u062D \u0625\u064A\u0642\u0627\u0641 \u0648\u0644\u0627 \u0645\u0624\u0642\u062A\u060C \u0627\u0633\u062A\u0643\u0645\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u0644\u0627 \u0636\u063A\u0637 \u062A\u0634\u063A\u064A\u0644 (v1.1.18)");
+      }
+    } catch {
+    }
+  }, 6e4 + (SLOT - 1) * 8e3).unref?.();
+}
