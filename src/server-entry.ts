@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.18';
+const SRV_VER = 'AB-210-TRQ-1.1.19';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -86,7 +86,12 @@ if (SLOT > 0) {
       }
       const clash = f.taken.find((t: any) => t.sym === S.config.symbol);
       if (clash && clash.holder < SLOT && !S.position) {
-        S._harvestAt = Date.now(); S._reselectDone = false;
+        /* ─── v1.1.19 (ملاحظة المالك 8 نوفمبر «أسطول واحد يعمل و4
+           يتأرجحون بلا توقف»): كان هذا السطر يضبط _harvestAt=now — جني
+           مزيف يفتح نافذة «القفز الفوري بعد الجني» كل 10 ثوانٍ فيقفز
+           المحرك إلى عملة محرك آخر، يُقذف منها، ثم يقفز ثانية — تأرجح
+           أبدي لا تسليح ولا صفقات. أُزيل: التنبيه وحده يكفي ─── */
+        S._reselectDone = false;
         pushLog('server', '🚦 تنبيه الأسطول: العملة مشغولة بمحرك ' + clash.holder + ' — ينتظر عملات بديلة');
       }
     }
