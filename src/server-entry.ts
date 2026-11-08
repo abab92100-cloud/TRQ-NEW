@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.23';
+const SRV_VER = 'AB-210-TRQ-1.1.24';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -117,7 +117,11 @@ async function pollSlots() {
   }));
   _slotPollAt = Date.now();
 }
-setInterval(() => { pollSlots().catch(() => { }); }, 2500).unref?.();
+/* ─── v1.1.24 «صمود»: الاستقصاء الدوري للمنسّق وحده — كانت كل عملية
+   (منسّق + 5 محركات) تستقصي المحركات الخمسة كل 2.5ث = 25 طلباً ثقيلاً
+   في كل دورة لا تستخدمه المحركات إطلاقاً (ملكية العملة تُقرأ من /fleet
+   في المنسّق) — حمل ضخم على جوال واحد هو أحد أسباب انقطاعات الاتصال ─── */
+if (SLOT === 0) setInterval(() => { pollSlots().catch(() => { }); }, 2000).unref?.();
 
 const STRAT_FIELDS = ['gridStepPct', 'levels', 'leverage', 'tpUsd', 'tpNet', 'huntPct', 'directionMode', 'hfMode'];
 const alignFleetStrategy = async () => {
@@ -286,9 +290,11 @@ const srv = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && u.pathname === '/state') {
-      // بيانات طازجة دائماً: إن مر أكثر من ثانية على آخر استقصاء، استقصِ الآن
-      // قبل الرد (متوازٍ وسريع ~50 مللي) — لا يرى التطبيق حالة عمرها 10 ثوانٍ
-      if (Date.now() - _slotPollAt > 1000) { try { await pollSlots(); } catch { } }
+      /* ─── v1.1.24 «صمود» (شكوى المالك «يفقد الاتصال بسيرفر»): طلب /state
+         لم يعد ينتظر الاستقصاء أبداً — كان الرد قد يتأخر حتى 1.2ث إذا كان
+         محرك منشغلاً بالدراسة، وطلبات التطبيق كل 1.2ث تتراكب فتنقلب
+         الواجهة «مقطوع». الكاش يُجدَّد كل ثانيتين في الخلفية (أعلاه) —
+         عمر البيانات الذي يراه التطبيق ≤ ثانيتان، والرد دائماً فوري ─── */
       const sel = parseInt(u.searchParams.get('sel') || '0', 10) || 0;
       const st = mergedState(sel);
       if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: 'idle', heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } }, req);
@@ -414,6 +420,16 @@ const srv = createServer(async (req, res) => {
   }
 });
 
+srv.on('error', (e: any) => {
+  /* ─── v1.1.24 «صمود»: احتلال المنفذ (نسختان تعملان بعد تحديث) كان
+     يُسقط العملية بصمت ثم تُعاد كل 5ث في دوامة لا يتضح سببها ─── */
+  if (e && (e as any).code === 'EADDRINUSE') {
+    console.log('[AB-210-TRQ] ⚠ المنفذ ' + PORT + ' محتوم — سيرفر آخر يعمل على هذا الجهاز' +
+      (SLOT > 0 ? ' — المحرك القديم ما زال يخدم المنفذ، خروج هادئ' : '. أوقف القديم أولاً (pkill -f node) ثم أعد التشغيل'));
+    process.exit(1);
+  }
+  console.log('[AB-210-TRQ] خطأ سيرفر: ' + String((e && e.message) || e));
+});
 srv.listen(PORT, '127.0.0.1', () => {
   if (SLOT > 0) {
     console.log('[AB-210-TRQ] محرك الأسطول ' + SLOT + ' يعمل على http://127.0.0.1:' + PORT);
