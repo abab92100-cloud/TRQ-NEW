@@ -1850,7 +1850,8 @@ async function backgroundPipeline() {
         }
       }
     }
-    const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55);
+    const __tkHide = (S._fleetTaken || []).map((x) => String(x));
+    const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55 && !__tkHide.includes(String(l.symbol)));
     if (!cands.length) return;
     const nxt = cands[0];
     S._nextReady = true;
@@ -1958,6 +1959,11 @@ function openNextReady() {
     return false;
   }
   const sym = S._nextSymbol;
+  if ((S._fleetTaken || []).map(String).includes(String(sym))) {
+    S._nextReady = false;
+    S._nextSymbol = null;
+    return false;
+  }
   S._nextReady = false;
   S._nextSymbol = null;
   S._reselectDone = true;
@@ -2234,9 +2240,10 @@ async function postHarvestReselect() {
         }
       }
     }
-    const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55);
+    const __tk = (S._fleetTaken || []).map((x) => String(x));
+    const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55 && !__tk.includes(String(l.symbol)));
     const bestOther = cands.find((l) => fresh(l)) || cands[0];
-    const freshBest = r.list.filter((l) => fresh(l) && l.symbol !== S.config.symbol).find((l) => (l.score || 0) >= 45);
+    const freshBest = r.list.filter((l) => fresh(l) && l.symbol !== S.config.symbol && !__tk.includes(String(l.symbol))).find((l) => (l.score || 0) >= 45);
     const pick = bestOther || freshBest;
     S._reselectDone = true;
     S._nextReady = false;
@@ -2521,7 +2528,8 @@ async function maybeSwitchSymbol() {
     const r = await scanRadar();
     if (!r || !r.list || !r.list.length) return;
     const cur = r.list.find((l) => l.symbol === S.config.symbol);
-    const best = r.list.filter((l) => l.symbol !== S.config.symbol).find((l) => (l.score || 0) >= 55);
+    const __tkSw = (S._fleetTaken || []).map((x) => String(x));
+    const best = r.list.filter((l) => l.symbol !== S.config.symbol && !__tkSw.includes(String(l.symbol))).find((l) => (l.score || 0) >= 55);
     if (!best) return;
     const afterHarvest = !!(S._harvestAt && Date.now() - S._harvestAt < 10 * 60 * 1e3);
     const idleMs = Date.now() - (S._dwellAt || S.startedAt || S._savedAt || Date.now());
@@ -3051,7 +3059,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.18 no-stall waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.19 fleet-spread waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -7136,7 +7144,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.18";
+var SRV_VER = "AB-210-TRQ-1.1.19";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7211,7 +7219,6 @@ if (SLOT > 0) {
       }
       const clash = f.taken.find((t) => t.sym === S.config.symbol);
       if (clash && clash.holder < SLOT && !S.position) {
-        S._harvestAt = Date.now();
         S._reselectDone = false;
         pushLog("server", "\u{1F6A6} \u062A\u0646\u0628\u064A\u0647 \u0627\u0644\u0623\u0633\u0637\u0648\u0644: \u0627\u0644\u0639\u0645\u0644\u0629 \u0645\u0634\u063A\u0648\u0644\u0629 \u0628\u0645\u062D\u0631\u0643 " + clash.holder + " \u2014 \u064A\u0646\u062A\u0638\u0631 \u0639\u0645\u0644\u0627\u062A \u0628\u062F\u064A\u0644\u0629");
       }
