@@ -402,6 +402,8 @@ function SettingsScreen() {
   const [gw, setGw] = useState(c.groupWaitMin ?? 20);
   const [sm, setSm] = useState(c.stickMin ?? 30);
   const [dm, setDm] = useState(c.diversityMin ?? 120);
+  const [zm, setZm] = useState(c.zoneMaxPct ?? 1);
+  const [tm, setTm] = useState(c.tpMovePct ?? 0.35);
   const [dirMode, setDirMode] = useState(c.directionMode);
   const [mode, setMode] = useState(c.mode);
   const [tone, setTone] = useState(S.sound ? (S.soundTone || 'soft') : 'mute');
@@ -466,6 +468,9 @@ function SettingsScreen() {
           <div><label className="lb">انتظار المجموعات (بالدقائق 5-240)</label><input className="field" inputMode="numeric" value={gw} onChange={e => setGw(e.target.value)} /></div>
           <div><label className="lb">مهلة الثبات (بالدقائق 5-240) — لا تدوير طالما مناطق مسلحة</label><input className="field" inputMode="numeric" value={sm} onChange={e => setSm(e.target.value)} /></div>
           <div><label className="lb">نافذة التنويع (بالدقائق 30-1440) — حظر العملة المجناة</label><input className="field" inputMode="numeric" value={dm} onChange={e => setDm(e.target.value)} /></div>
+          <div><label className="lb">أبعد منطقة دخول % (0.2-3) — اضرب واهرب: مناطق قريبة فقط</label><input className="field" inputMode="decimal" value={zm} onChange={e => setZm(e.target.value)} /></div>
+          <div><label className="lb">هدف الاضرب والهرب % (0.24-1.5 حركة سعر) — جني سريع</label><input className="field" inputMode="decimal" value={tm} onChange={e => setTm(e.target.value)} /></div>
+          <p className="note">⚡ اضرب واهرب: منطقة أقرب = دخول أسرع، وهدف % أصغر = جني أسرع. لا تنزل الهدف تحت 0.24% — أقل منه تأكل الرسوم الربح.</p>
           <div>
             <label className="lb">الاتجاه</label>
             <select className="field" value={dirMode} onChange={e => setDirMode(e.target.value)}>
@@ -487,7 +492,7 @@ function SettingsScreen() {
           ))}
         </div>
         <button className="btn acc" style={{ marginTop: 12, width: '100%' }}
-          onClick={() => saveCfg({ symbol, leverage: lev, levels, gridStepPct: step, huntPct: hunt, tpNet, tpUsd, cycleBalance: bal, entryBoost: eb, groupWaitMin: gw, stickMin: sm, diversityMin: dm, directionMode: dirMode, mode, sound: tone !== 'mute', soundTone: tone === 'mute' ? 'soft' : tone })}>
+          onClick={() => saveCfg({ symbol, leverage: lev, levels, gridStepPct: step, huntPct: hunt, tpNet, tpUsd, cycleBalance: bal, entryBoost: eb, groupWaitMin: gw, stickMin: sm, diversityMin: dm, zoneMaxPct: zm, tpMovePct: tm, directionMode: dirMode, mode, sound: tone !== 'mute', soundTone: tone === 'mute' ? 'soft' : tone })}>
           حفظ المعاملات
         </button>
       </div>

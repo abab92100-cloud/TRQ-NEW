@@ -81,8 +81,11 @@ function resetLadder(reason: string) {
 export function bounceOn() { return S.config && S.config.bounceMode !== false; }
 
 const ZONE_CLUSTER_PCT = 0.0025;   // قيعان/قمم ضمن 0.25% = منطقة واحدة (اللمسات تتجمع)
-const ZONE_MAX_DIST_PCT = 0.015;   // أبعد منطقة مقبولة عن السعر: 1.5% (صيد قريب سريع)
 const ZONE_MIN_DIST_PCT = 0.0006;  // أقرب من 0.06%: لا مساحة ربح حقيقية — تُرفض
+/* ─── v1.1.16 «اضرب واهرب» (أمر المالك 8 نوفمبر): أبعد منطقة قابلة للتسليح
+   قابلة للضبط من الإعدادات — افتراضياً 1% بدل 1.5%: مناطق يصلها السعر في
+   دقائق إلى ساعة، لا رحلة أيام. المدى 0.2-3% ─── */
+function zoneMaxPct(){ return Math.min(3,Math.max(0.2,Number(S&&S.config&&S.config.zoneMaxPct)||1)); }
 
 let _zoneCache: any = null; // {sym, short, at, zones} — إعادة دراسة المناطق كل ساعة
 let _zoneFails = 0;        // فشل جلب متتالٍ — يمدد فترة إعادة المحاولة تصاعدياً
@@ -160,7 +163,7 @@ async function placeGroupBounce(g: number) {
     const dir = short ? 1 : -1; // منطقة الربح فوق السعر (شورت) / تحته (لونغ)
     let pool = zones.filter((z: any) => {
       const d = ((z.px - px0) / px0) * dir;
-      return d >= ZONE_MIN_DIST_PCT && d <= ZONE_MAX_DIST_PCT;
+      return d >= ZONE_MIN_DIST_PCT && d <= zoneMaxPct() / 100;
     });
     // المجموعات الأعمق (g>0): مناطق خلف متوسط المركز الحالي فقط — انعكاس مدروس
     const avg = S.position ? S.position.entry : 0;
@@ -172,8 +175,13 @@ async function placeGroupBounce(g: number) {
     const existing = (S.grid || []).filter((l: any) => l.origin === 'ladder' &&
       (l.status === 'armed' || l.status === 'open' || l.filledAt));
     pool = pool.filter((z: any) => !existing.some((l: any) => l.price > 0 && Math.abs(l.price - z.px) / z.px < 0.0015));
-    // الأقوى أولاً (لمسات أكثر ثم الأقرب) — الرئيسي عند أقوى منطقة قريبة
-    pool.sort((a: any, b: any) => (b.touch - a.touch) || (Math.abs(a.px - px0) - Math.abs(b.px - px0)));
+    // v1.1.16 «اضرب واهرب»: منطقة قوية (لمستان فأكثر) أولاً، ثم الأقرب —
+    // لا ننتظر منطقة أقوى على بعد 1% والأقرب القوية على بعد 0.2%
+    pool.sort((a: any, b: any) => {
+      const am = Math.min(a.touch, 2), bm = Math.min(b.touch, 2);
+      if (am !== bm) return bm - am;
+      return Math.abs(a.px - px0) - Math.abs(b.px - px0);
+    });
     const chosen = pool.slice(0, GROUP_SIZE);
     if (!chosen.length) {
       if (!st.noZoneAt || Date.now() - st.noZoneAt > 300000) { st.noZoneAt = Date.now();
