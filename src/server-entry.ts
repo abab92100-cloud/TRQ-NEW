@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.19';
+const SRV_VER = 'AB-210-TRQ-1.1.20';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -457,7 +457,7 @@ else {
     try {
       if (S.status === 'idle' && !haltRequested() && !S._holdAfterHarvest) {
         startBot();
-        pushLog('server', '♻️ استئناف تلقائي للمحرك ' + SLOT + ' — لا مفتاح إيقاف ولا مؤقت، استكمل العمل بلا ضغط تشغيل (v1.1.18)');
+        pushLog('server', '♻️ استئناف تلقائي للمحرك ' + SLOT + ' — لا مفتاح إيقاف ولا مؤقت، استكمل العمل بلا ضغط تشغيل (' + SRV_VER.replace('AB-210-TRQ-', 'v') + ')');
       }
     } catch {}
   }, 60000 + (SLOT - 1) * 8000).unref?.();
