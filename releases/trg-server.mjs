@@ -1845,7 +1845,7 @@ async function backgroundPipeline() {
         if (qual.length && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
           const __start = (SL - 1) % qual.length;
           let __tried = 0;
-          for (let qi = __start; qi < qual.length && __tried < 3; qi++) {
+          for (let qi = __start; qi < qual.length && __tried < 5; qi++) {
             __tried++;
             const bc = await bookClean(String(qual[qi].symbol));
             if (bc.ok) {
@@ -2254,7 +2254,7 @@ async function postHarvestReselect() {
         if (qual.length && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
           const __start = (SL - 1) % qual.length;
           let __tried = 0;
-          for (let qi = __start; qi < qual.length && __tried < 3; qi++) {
+          for (let qi = __start; qi < qual.length && __tried < 5; qi++) {
             __tried++;
             const bc = await bookClean(String(qual[qi].symbol));
             if (bc.ok) {
@@ -2586,7 +2586,7 @@ async function maybeSwitchSymbol() {
     const tkEsc0 = (S._fleetTaken || []).map((x) => String(x));
     const altC = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc0.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2) && (l.score || 0) >= 55);
     let alt0 = null;
-    for (let ai = 0; ai < altC.length && ai < 3; ai++) {
+    for (let ai = 0; ai < altC.length && ai < 5; ai++) {
       const bc = await bookClean(String(altC[ai].symbol));
       if (bc.ok) {
         alt0 = altC[ai];
@@ -2637,7 +2637,7 @@ async function maybeSwitchSymbol() {
     const __tkSw = (S._fleetTaken || []).map((x) => String(x));
     const bestC = r.list.filter((l) => l.symbol !== S.config.symbol && !__tkSw.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2) && (l.score || 0) >= 55);
     let best = null;
-    for (let bi = 0; bi < bestC.length && bi < 3; bi++) {
+    for (let bi = 0; bi < bestC.length && bi < 5; bi++) {
       const bc = await bookClean(String(bestC[bi].symbol));
       if (bc.ok) {
         best = bestC[bi];
@@ -3173,7 +3173,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.25 storm-in fleet-spread veto-escape active55 heavy-share pure-pick fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.26 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -5546,6 +5546,24 @@ async function patienceLimit(p) {
   S._postDisaster = Date.now();
   startStudy(false);
 }
+async function scalpHarvest(p) {
+  try {
+    if (!p || S.status !== "running" || !S.position) return;
+    const openedAt = Number(S.position.openedAt) || 0;
+    if (!openedAt) return;
+    if (Date.now() - openedAt < 10 * 60 * 1e3) return;
+    if (S._scalpAt && Date.now() - S._scalpAt < 6e4) return;
+    S._scalpAt = Date.now();
+    const mult = S.multiplier || 1, q = Number(S.position.size) || 0;
+    const fees = q * mult * Number(p || 0) * 6e-4 * 2;
+    const net = Number(S.position.unrealized) || 0;
+    const floor = Math.max(0.05, Math.min(fees * 3, tpBase() * 0.9));
+    if (!(net >= floor)) return;
+    pushLog("server", "\u{1F3C3} \u062C\u0646\u064A \u0633\u0628\u0631\u0646\u062A \xAB\u0648\u0627\u0628\u0644\xBB (" + Math.round((Date.now() - openedAt) / 6e4) + " \u062F): \u0635\u0627\u0641\u064A " + fmtUsd(net) + " \u064A\u0628\u0644\u063A \u0627\u0644\u0623\u0631\u0636\u064A\u0629 (" + fmtUsd(floor) + ") \u2014 \u0627\u063A\u062A\u0646\u0627\u0645 \u0627\u0644\u0631\u0628\u062D \u0627\u0644\u0645\u062A\u0627\u062D \u0641\u0648\u0631\u0627\u064B \u0648\u062A\u062D\u0631\u064A\u0631 \u0627\u0644\u0645\u062D\u0631\u0643 \u0644\u0644\u0635\u0641\u0642\u0629 \u0627\u0644\u062A\u0627\u0644\u064A\u0629");
+    await flattenAt(p, "\u062C\u0646\u064A \u0633\u0628\u0631\u0646\u062A \u0648\u0627\u0628\u0644");
+  } catch {
+  }
+}
 async function noProgressRotate(p) {
   if (!p || S.status !== "running" || !S.position) return;
   const pos = S.position;
@@ -6689,6 +6707,7 @@ async function botTick() {
     }
     if (running && price > 0) {
       await patienceLimit(price);
+      await scalpHarvest(price);
       await noProgressRotate(price);
       await circuitBreak(price);
       await escapeAdverse(price);
@@ -7335,7 +7354,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.25";
+var SRV_VER = "AB-210-TRQ-1.1.26";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
