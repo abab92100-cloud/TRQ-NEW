@@ -1163,8 +1163,8 @@ async function remoteSync() {
     return true;
   } catch (e) {
     _remoteFails++;
-    streamState.connected = false;
-    if (_remoteFails === 5) toast("\u26A0\uFE0F \u0633\u064A\u0631\u0641\u0631 Termux \u0644\u0627 \u064A\u0631\u062F \u2014 \u0634\u063A\u0651\u0644\u0647 \u0645\u0646 \u062C\u062F\u064A\u062F: node king-server.mjs");
+    if (_remoteFails >= 3) streamState.connected = false;
+    if (_remoteFails === 8) toast("\u26A0\uFE0F \u0633\u064A\u0631\u0641\u0631 Termux \u0644\u0627 \u064A\u0631\u062F \u0645\u0646\u0630 ~10 \u062B \u2014 \u0625\u0646 \u0627\u0633\u062A\u0645\u0631 \u0634\u063A\u0651\u0644\u0647 \u0645\u0646 \u062C\u062F\u064A\u062F");
     emit();
     return false;
   }
@@ -1173,7 +1173,7 @@ async function detectRemoteServer() {
   if (typeof window === "undefined") return false;
   try {
     const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 900);
+    const t = setTimeout(() => c.abort(), 3e3);
     const r = await fetch("http://127.0.0.1:9010/state", { signal: c.signal });
     clearTimeout(t);
     const j = await r.json();
@@ -3113,7 +3113,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.23 storm-in fleet-spread veto-escape active55 heavy-share fast-tp waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.24 storm-in fleet-spread veto-escape active55 heavy-share fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -7233,7 +7233,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.23";
+var SRV_VER = "AB-210-TRQ-1.1.24";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7332,10 +7332,10 @@ async function pollSlots() {
   }));
   _slotPollAt = Date.now();
 }
-setInterval(() => {
+if (SLOT === 0) setInterval(() => {
   pollSlots().catch(() => {
   });
-}, 2500).unref?.();
+}, 2e3).unref?.();
 var STRAT_FIELDS = ["gridStepPct", "levels", "leverage", "tpUsd", "tpNet", "huntPct", "directionMode", "hfMode"];
 var alignFleetStrategy = async () => {
   const base = {};
@@ -7568,12 +7568,6 @@ var srv = createServer(async (req, res) => {
       return send(res, 200, { ok: true, taken }, req);
     }
     if (req.method === "GET" && u.pathname === "/state") {
-      if (Date.now() - _slotPollAt > 1e3) {
-        try {
-          await pollSlots();
-        } catch {
-        }
-      }
       const sel = parseInt(u.searchParams.get("sel") || "0", 10) || 0;
       const st = mergedState(sel);
       if (!st) return send(res, 200, { ok: true, at: Date.now(), token: TOK, state: { status: "idle", heartbeat: Date.now(), logs: [], journal: [], grid: [], config: { cycleBalance: 0 }, fleet: [] } }, req);
@@ -7698,6 +7692,13 @@ var srv = createServer(async (req, res) => {
   } catch (e) {
     send(res, 500, { ok: false, error: String(e && e.message || e) }, req);
   }
+});
+srv.on("error", (e) => {
+  if (e && e.code === "EADDRINUSE") {
+    console.log("[AB-210-TRQ] \u26A0 \u0627\u0644\u0645\u0646\u0641\u0630 " + PORT + " \u0645\u062D\u062A\u0648\u0645 \u2014 \u0633\u064A\u0631\u0641\u0631 \u0622\u062E\u0631 \u064A\u0639\u0645\u0644 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u062C\u0647\u0627\u0632" + (SLOT > 0 ? " \u2014 \u0627\u0644\u0645\u062D\u0631\u0643 \u0627\u0644\u0642\u062F\u064A\u0645 \u0645\u0627 \u0632\u0627\u0644 \u064A\u062E\u062F\u0645 \u0627\u0644\u0645\u0646\u0641\u0630\u060C \u062E\u0631\u0648\u062C \u0647\u0627\u062F\u0626" : ". \u0623\u0648\u0642\u0641 \u0627\u0644\u0642\u062F\u064A\u0645 \u0623\u0648\u0644\u0627\u064B (pkill -f node) \u062B\u0645 \u0623\u0639\u062F \u0627\u0644\u062A\u0634\u063A\u064A\u0644"));
+    process.exit(1);
+  }
+  console.log("[AB-210-TRQ] \u062E\u0637\u0623 \u0633\u064A\u0631\u0641\u0631: " + String(e && e.message || e));
 });
 srv.listen(PORT, "127.0.0.1", () => {
   if (SLOT > 0) {
