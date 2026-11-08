@@ -398,8 +398,8 @@ function SettingsScreen() {
   const [tpNet, setTpNet] = useState(c.tpNet ?? 0.12);
   const [tpUsd, setTpUsd] = useState<(number|string)>(c.tpUsd ?? 1);
   const [bal, setBal] = useState(c.cycleBalance);
-  const [eb, setEb] = useState(c.entryBoost ?? 3);
-  const [gw, setGw] = useState(c.groupWaitMin ?? 20);
+  const [eb, setEb] = useState(c.entryBoost ?? 6);
+  const [gw, setGw] = useState(c.groupWaitMin ?? 5);
   const [sm, setSm] = useState(c.stickMin ?? 30);
   const [dm, setDm] = useState(c.diversityMin ?? 120);
   const [zm, setZm] = useState(c.zoneMaxPct ?? 1);
