@@ -457,12 +457,12 @@ var _zoneCache = null;
 var _zoneFails = 0;
 async function bounceZones(short) {
   const sym = S.config.symbol;
-  if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 36e5)
+  if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 6e5)
     return _zoneCache.zones;
-  const staleOk = _zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 12 * 36e5;
+  const staleOk = _zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 2 * 36e5;
   let ks = [];
   try {
-    ks = await fetchKlinesCached(sym, 15);
+    ks = await fetchKlinesCached(sym, 5);
     _zoneFails = 0;
     S._zonesOkAt = Date.now();
   } catch (e) {
@@ -479,7 +479,7 @@ async function bounceZones(short) {
     if (staleOk) return _zoneCache.zones;
     return [];
   }
-  const win = ks.slice(-192);
+  const win = ks.slice(-288);
   const pts = [];
   for (let i = 2; i < win.length - 2; i++) {
     const seg = win.slice(i - 2, i + 3);
@@ -2232,6 +2232,28 @@ async function postHarvestReselect() {
     return;
   }
   try {
+    const __rl = S.radar && Array.isArray(S.radar.list) ? S.radar.list.find((x) => x.symbol === S.config.symbol) : null;
+    const __taken = (S._fleetTaken || []).map(String).includes(String(S.config.symbol));
+    if (__rl && Number(__rl.score || 0) >= 55 && !__taken) {
+      const __bc = await bookClean(String(S.config.symbol));
+      if (__bc.ok) {
+        S._reselectDone = true;
+        S._nextReady = false;
+        S._nextSymbol = null;
+        S._waitFreshUntil = 0;
+        pushLog("server", "\u{1F501} \xAB\u0631\u0634\u0627\u0634\xBB \u0628\u0639\u062F \u0627\u0644\u062C\u0646\u064A: " + S.config.displaySymbol + " \u0645\u0627 \u0632\u0627\u0644\u062A \u0645\u0624\u0647\u0644\u0629 (\u062F\u0631\u062C\u0629 " + __rl.score + ") \u2014 \u0625\u0639\u0627\u062F\u0629 \u062A\u0633\u0644\u064A\u062D \u0646\u0641\u0633 \u0645\u0646\u0627\u0637\u0642 \u0641\u0631\u064A\u0645 5 \u062F\u0642\u0627\u0626\u0642 \u0641\u0648\u0631\u0627\u064B \u0644\u0644\u0635\u0641\u0642\u0629 \u0627\u0644\u0645\u062A\u062A\u0627\u0644\u064A\u0629");
+        emit();
+        return;
+      }
+      if (Date.now() - (S._rshLogAt || 0) > 12e4) {
+        S._rshLogAt = Date.now();
+        pushLog("server", "\u{1F9FC} \xAB\u0631\u0634\u0627\u0634\xBB: \u062F\u0641\u062A\u0631 " + S.config.displaySymbol + " \u0642\u0630\u0631 \u0628\u0639\u062F \u0627\u0644\u062C\u0646\u064A (" + __bc.reason + ") \u2014 \u0644\u0627 \u0635\u0641\u0642\u0627\u062A \u0645\u062A\u062A\u0627\u0644\u064A\u0629 \u0647\u0646\u0627\u060C \u0627\u0644\u0628\u062D\u062B \u0639\u0646 \u0628\u062F\u064A\u0644 \u0623\u0646\u0638\u0641");
+      }
+    }
+  } catch (e) {
+    logSwallow("silent-catch", e);
+  }
+  try {
     const r = await scanRadar();
     if (!r || !r.list || !r.list.length) return;
     S.recentCoins = S.recentCoins || {};
@@ -3173,7 +3195,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.27 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.28 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -7360,7 +7382,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.27";
+var SRV_VER = "AB-210-TRQ-1.1.28";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
