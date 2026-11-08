@@ -95,7 +95,13 @@ let _zoneFails = 0;        // فشل جلب متتالٍ — يمدد فترة �
 
 async function bounceZones(short: boolean): Promise<any[]> {
   const sym = S.config.symbol;
-  if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 3600e3)
+  // ─── v1.1.28 «رشاش» (أمر المالك 9 نوفمبر: «لدينا معلومات من المنصه مفيده
+  // لو تعاملنا معاها بشكل ذكي على فريم خمس دقائق لكل صفقه»): دراسة المناطق
+  // على شموع 5 دقائق بدل 15 — المناطق المختبرة على 5 د قريبة وسريعة اللمس
+  // فتمتلئ الصفقات المتتالية من نفس المنطقة بدل انتظار مناطق 15 د البعيدة.
+  // نافذة 288 شمعة × 5 د = 24 ساعة، والتخزين 10 دقائق فقط حتى تتجدد
+  // المناطق بسرعة بعد كل جني للصفقة التالية ───
+  if (_zoneCache && _zoneCache.sym === sym && _zoneCache.short === short && Date.now() - _zoneCache.at < 600e3)
     return _zoneCache.zones;
   // ─── v1.1.9 درس «أكثر من ساعة بلا صفقة»: جلب الشموع كان يفشل بعاصفة
   // حصص المنصة (429) فيقف الصيد كلياً بلا أمر واحد. الآن: آخر دراسة ناجحة
@@ -103,10 +109,10 @@ async function bounceZones(short: boolean): Promise<any[]> {
   // كل دقيقة، والصيد بمنطقة مدروسة قديمة أفضل ألف مرة من لا صيد إطلاقاً.
   // المناطق المكسورة تُرشّح عند التسليح بحدودها الزمنية الحية لاحقاً ───
   const staleOk = _zoneCache && _zoneCache.sym === sym && _zoneCache.short === short &&
-    _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 12 * 3600e3;
+    _zoneCache.zones && _zoneCache.zones.length && Date.now() - _zoneCache.at < 2 * 3600e3;
   let ks: any[] = [];
   try {
-    ks = await fetchKlinesCached(sym, 15); // v1.1.10: كاش مشترك + نسخة قديمة عند رفض المنصة — الصيد لا يقف
+    ks = await fetchKlinesCached(sym, 5); // v1.1.28 «رشاش»: فريم 5 دقائق — المناطق تُلمس خلال دقائق لا ساعات (v1.1.10: كاش مشترك + نسخة قديمة عند رفض المنصة)
     _zoneFails = 0;
     S._zonesOkAt = Date.now(); // دراسة المناطق نجحت — البورة تُقاس من هنا
   } catch (e) {
@@ -122,7 +128,7 @@ async function bounceZones(short: boolean): Promise<any[]> {
     if (staleOk) return _zoneCache.zones;
     return [];
   }
-  const win = ks.slice(-192); // 192 شمعة × 15 د = 48 ساعة (v1.1.14: نطاق أوسع = مناطق ارتداد مختبرة أكثر وانتظار أقل)
+  const win = ks.slice(-288); // 288 شمعة × 5 د = 24 ساعة (v1.1.28 «رشاش»: فريم 5 دقائق — مناطق مختبرة كثيرة وسريعة الوصول)
   // فراكتال 5 شموع: قاع/قمة محلية مختبرة ارتد منها السعر فعلاً
   const pts: any[] = [];
   for (let i = 2; i < win.length - 2; i++) {
