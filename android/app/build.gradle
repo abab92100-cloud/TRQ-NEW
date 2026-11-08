@@ -7,8 +7,8 @@ android {
         applicationId "com.trg.new"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 78
-        versionName "1.1.24"
+        versionCode 79
+        versionName "1.1.25"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
@@ -59,5 +59,3 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied")
 }
-
-
