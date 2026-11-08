@@ -786,7 +786,7 @@ function dynamicTpNet() {
   target = Math.max(target, bal * 24e-4);
   target = Math.min(target, Math.max(0.3, (S.config && S.config.cycleBalance || 0) * 0.015));
   if (hf) target = Math.min(target, 0.05);
-  const hrPct = Math.min(1.5, Math.max(0.24, Number(S.config && S.config.tpMovePct) || 0.35));
+  const hrPct = Math.min(1.5, Math.max(0.24, Number(S.config && S.config.tpMovePct) || 0.24));
   target = Math.min(target, bal * hrPct / 100);
   if (hf) target = Math.min(target, 0.05);
   return Math.max(0.08, Math.round(target * 100) / 100);
@@ -1226,8 +1226,8 @@ var S = {
     // نافذة التنويع بالدقائق (v1.1.14 «العودة الساخنة»): العملة المجناة تُحظر ساعتين فقط بدل 24 ساعة
     zoneMaxPct: 1,
     // أبعد منطقة تسليح % (v1.1.16 «اضرب واهرب»): مناطق قريبة يصلها السعر بسرعة — قابل للضبط 0.2-3
-    tpMovePct: 0.35
-    // سقف حركة سعر الهدف % (v1.1.16): الجني ضمن حركة سريعة منالة — قابل للضبط 0.24-1.5
+    tpMovePct: 0.24
+    // v1.1.23 «عاصفة» (أمر المالك 8 نوفمبر مساءً): الجني عند أول حركة منالة 0.24% (حد 3× العمولة) لا 0.35% الماراثونية
   },
   status: "idle",
   heartbeat: 0,
@@ -1431,6 +1431,10 @@ function loadAll() {
   try {
     const cfg = JSON.parse(localStorage.getItem("abking:cfg") || "null");
     if (cfg) S.config = { ...S.config, ...cfg };
+    if (Number(S.config.tpMovePct) === 0.35) {
+      S.config.tpMovePct = 0.24;
+      pushLog("server", "\u26A1 \u062A\u0631\u0642\u064A\u0629 \u0639\u0627\u0635\u0641\u0629: \u0633\u0642\u0641 \u062D\u0631\u0643\u0629 \u0647\u062F\u0641 \u0627\u0644\u062C\u0646\u064A 0.35% \u2192 0.24% \u2014 \u062C\u0646\u064A \u0623\u0633\u0631\u0639 \u0639\u0646\u062F \u0623\u0648\u0644 \u062D\u0631\u0643\u0629 \u0645\u0646\u0627\u0644\u0629");
+    }
     if (!cfg && FLEET_MODE()) S.config.cycleBalance = Math.max(1, Math.round(S.config.cycleBalance / 5 * 100) / 100);
     const ks = localStorage.getItem("abking:keys");
     if (ks) {
@@ -1838,7 +1842,7 @@ async function backgroundPipeline() {
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
         const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 55 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
         const best = qual.length ? qual[(SL - 1) % qual.length] : null;
-        if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 18e4)) {
+        if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
           S._oppPickAt = Date.now();
           pushLog("server", "\u{1F3AF} \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629: " + best.disp + " (\u062F\u0631\u062C\u0629 " + best.score + " \xB7 \u0633\u064A\u0648\u0644\u0629 " + Math.round((Number(best.turnover) || 0) / 1e6) + "M) \u2014 \u062A\u064F\u062F\u0631\u0633 \u062B\u0645 \u062A\u064F\u0641\u062A\u062D \u0627\u0644\u0635\u0641\u0642\u0629");
           try {
@@ -2206,7 +2210,7 @@ async function postHarvestReselect() {
     S._reselectDone = true;
     return;
   }
-  if (Date.now() - S._harvestAt > 5 * 60 * 1e3 && !S._reselectBusy) {
+  if (Date.now() - S._harvestAt > 3 * 60 * 1e3 && !S._reselectBusy) {
     S._reselectDone = true;
     pushLog("server", "\u23F1 \u0628\u0639\u062F \u0627\u0644\u062C\u0646\u064A: \u062A\u0639\u0630\u0631 \u0627\u0643\u062A\u0645\u0627\u0644 \u0645\u0633\u062D \u0627\u0644\u0631\u0627\u062F\u0627\u0631 \u2014 \u0627\u0633\u062A\u0626\u0646\u0627\u0641 \u0627\u0644\u0635\u064A\u062F \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u0644\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629");
     return;
@@ -2231,7 +2235,7 @@ async function postHarvestReselect() {
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
         const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 55 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
         const best = qual.length ? qual[(SL - 1) % qual.length] : null;
-        if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 18e4)) {
+        if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
           S._oppPickAt = Date.now();
           pushLog("server", "\u{1F3AF} \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629: " + best.disp + " (\u062F\u0631\u062C\u0629 " + best.score + " \xB7 \u0633\u064A\u0648\u0644\u0629 " + Math.round((Number(best.turnover) || 0) / 1e6) + "M) \u2014 \u062A\u064F\u062F\u0631\u0633 \u062B\u0645 \u062A\u064F\u0641\u062A\u062D \u0627\u0644\u0635\u0641\u0642\u0629");
           try {
@@ -2266,7 +2270,7 @@ async function postHarvestReselect() {
     S._nextReady = false;
     S._nextSymbol = null;
     if (!pick) {
-      S._waitFreshUntil = Date.now() + 10 * 6e4;
+      S._waitFreshUntil = Date.now() + 90 * 1e3;
       pushLog("server", "\u{1F50E} \u0628\u0639\u062F \u0627\u0644\u062C\u0646\u064A: \u0644\u0627 \u0628\u062F\u064A\u0644 \u062C\u062F\u064A\u062F \u0645\u0624\u0647\u0644 \u2014 \u0644\u0627 \u0625\u0639\u0627\u062F\u0629 \u062F\u062E\u0648\u0644 \u0644\u0646\u0641\u0633 \u0627\u0644\u0639\u0645\u0644\u0629 \u2014 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0645\u0631\u0634\u062D \u062C\u062F\u064A\u062F \u0645\u0646 \u0627\u0644\u062F\u0631\u0627\u0633\u0629 \u0627\u0644\u0634\u0627\u0645\u0644\u0629 (\u062D\u062A\u0649 30 \u062F\u0642\u064A\u0642\u0629)");
       return;
     }
@@ -2532,7 +2536,7 @@ async function maybeSwitchSymbol() {
     }
     return;
   }
-  if (Date.now() - _lastSwitchAt < 45e3) return;
+  if (Date.now() - _lastSwitchAt < 2e4) return;
   if (studying()) return;
   if (vetoStuck()) {
     const tkEsc0 = (S._fleetTaken || []).map((x) => String(x));
@@ -2583,7 +2587,7 @@ async function maybeSwitchSymbol() {
     if (!best) return;
     const afterHarvest = !!(S._harvestAt && Date.now() - S._harvestAt < 10 * 60 * 1e3);
     const idleMs = Date.now() - (S._dwellAt || S.startedAt || S._savedAt || Date.now());
-    const barren = idleMs > 10 * 60 * 1e3;
+    const barren = idleMs > 6 * 60 * 1e3;
     if (barren && best) {
       if (S.config.bounceMode !== false && !((S._zonesOkAt || 0) > (S._dwellAt || 0)) && Date.now() - (S._dwellAt || 0) < 25 * 60 * 1e3) {
         if (!S._barrenHoldAt || Date.now() - S._barrenHoldAt > 5 * 60 * 1e3) {
@@ -3109,7 +3113,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.22 fleet-spread veto-escape active55 heavy-share waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.23 storm-in fleet-spread veto-escape active55 heavy-share fast-tp waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4511,7 +4515,7 @@ function _harvestCleanup(fp) {
     S.recentCoins[S.config.symbol] = Date.now();
   } catch {
   }
-  S._waitFreshUntil = Date.now() + 3 * 6e4;
+  S._waitFreshUntil = Date.now() + 45 * 1e3;
   S._reselectDone = false;
   S._posPeakNet = null;
   S._batchFills = 0;
@@ -4930,9 +4934,9 @@ function vetoStuck() {
     const cut = Date.now() - 10 * 60 * 1e3;
     let n = 0;
     for (const t of arr) if (Number(t) > cut) n++;
-    if (n < 5) return false;
+    if (n < 3) return false;
     const dwell = Number(S._dwellAt) || 0;
-    if (!dwell || Date.now() - dwell < 8 * 60 * 1e3) return false;
+    if (!dwell || Date.now() - dwell < 3 * 60 * 1e3) return false;
     for (const l of S.grid || []) if (l.filledAt && Number(l.filledAt) > dwell) return false;
     return true;
   } catch {
@@ -5153,10 +5157,10 @@ function huntTrigger(p) {
   if (studying()) return null;
   if (!S.position) {
     const rl = S.radar && Array.isArray(S.radar.list) ? S.radar.list.find((x) => x.symbol === S.config.symbol) : null;
-    if (rl && Number(rl.score || 0) < 68) {
+    if (rl && Number(rl.score || 0) < 55) {
       if (!S._waitOppAt || Date.now() - S._waitOppAt > 3e5) {
         S._waitOppAt = Date.now();
-        pushLog("server", "\u23F3 \u0644\u0627 \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629 \u0639\u0644\u0649 " + S.config.displaySymbol + " (\u062F\u0631\u062C\u0629 " + rl.score + "<68) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0641\u0631\u0635\u0629 \u0623\u0641\u0636\u0644 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0625\u062C\u0628\u0627\u0631\u064A");
+        pushLog("server", "\u23F3 \u0644\u0627 \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629 \u0639\u0644\u0649 " + S.config.displaySymbol + " (\u062F\u0631\u062C\u0629 " + rl.score + "<55) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0641\u0631\u0635\u0629 \u0623\u0641\u0636\u0644 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0625\u062C\u0628\u0627\u0631\u064A");
       }
       return null;
     }
@@ -6935,7 +6939,7 @@ function saveCfg(v) {
   if (v.stickMin != null && v.stickMin !== "") S.config.stickMin = clamp(Math.round(+v.stickMin) || 30, 5, 240);
   if (v.diversityMin != null && v.diversityMin !== "") S.config.diversityMin = clamp(Math.round(+v.diversityMin) || 120, 30, 1440);
   if (v.zoneMaxPct != null && v.zoneMaxPct !== "") S.config.zoneMaxPct = clamp(+v.zoneMaxPct || 1, 0.2, 3);
-  if (v.tpMovePct != null && v.tpMovePct !== "") S.config.tpMovePct = clamp(+v.tpMovePct || 0.35, 0.24, 1.5);
+  if (v.tpMovePct != null && v.tpMovePct !== "") S.config.tpMovePct = clamp(+v.tpMovePct || 0.24, 0.24, 1.5);
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
@@ -7229,7 +7233,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.22";
+var SRV_VER = "AB-210-TRQ-1.1.23";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
