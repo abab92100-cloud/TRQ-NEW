@@ -1202,10 +1202,10 @@ var S = {
     // صائد الارتداد المدروس (أمر المالك 7 نوفمبر): دخول عند مناطق ارتداد مختبرة من الشموع فقط — لا دخول في منتصف الهواء
     seqMode: false,
     // الأساطيل حرة (أمر المالك 6 نوفمبر): كل محرك يضع منطقة دخوله فور اكتمال دراسته — لا انتظار على أسطول آخر
-    entryBoost: 3,
-    // قوة الدخول الأولى (أمر المالك 7 نوفمبر): أول دخول عند المنطقة الممتازة بحجم مضاعف ×3 — قابل للضبط 1-6 من الإعدادات
-    groupWaitMin: 20,
-    // انتظار المجموعات بالدقائق (v1.1.12 «تسليح مستمر»): بدل 2/3/4/4 ساعات — 20 دقيقة افتراضياً، قابل للضبط 5-240
+    entryBoost: 6,
+    // قوة الدخول الأولى (v1.1.17 «المختبر يقرر»): قاسها مختبر المحاكاة على شموع حقيقية — ×6 رفع الصافي 2-3 أضعاف على PEPE وPUMP — قابل للضبط 1-6 من الإعدادات
+    groupWaitMin: 5,
+    // انتظار المجموعات بالدقائق (v1.1.17 «المختبر يقرر»): 5 دقائق بدل 20 قصّرت دورة الصفقة من 169 إلى 51 دقيقة ورفعت الصافي — قابل للضبط 5-240
     stickMin: 30,
     // مهلة الثبات بالدقائق (v1.1.13 «الثبات يصطاد»): لا تدوير طالما توجد مناطق مسلحة ضمن هذه المهلة — 30 دقيقة افتراضياً
     diversityMin: 120,
@@ -3029,7 +3029,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.16 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.17 lab-tuned waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3732,7 +3732,7 @@ function resolveDirection(now) {
   return S.config.direction;
 }
 function entryBoost() {
-  return clamp(Math.round(Number(S.config && S.config.entryBoost) || 3), 1, 6);
+  return clamp(Math.round(Number(S.config && S.config.entryBoost) || 6), 1, 6);
 }
 function diversityMs() {
   return Math.max(30, Math.round(Number(S.config && S.config.diversityMin) || 120)) * 6e4;
@@ -6816,8 +6816,8 @@ function saveCfg(v) {
   if (v.tpNet != null && v.tpNet !== "") S.config.tpNet = clamp(+v.tpNet || TP_BASE_NET, 0.03, 50);
   if (v.tpUsd != null && v.tpUsd !== "") S.config.tpUsd = clamp(+v.tpUsd || 0, 0, 1e3);
   S.config.cycleBalance = Math.max(1, +v.cycleBalance || 100);
-  if (v.entryBoost != null && v.entryBoost !== "") S.config.entryBoost = clamp(Math.round(+v.entryBoost) || 3, 1, 6);
-  if (v.groupWaitMin != null && v.groupWaitMin !== "") S.config.groupWaitMin = clamp(Math.round(+v.groupWaitMin) || 20, 5, 240);
+  if (v.entryBoost != null && v.entryBoost !== "") S.config.entryBoost = clamp(Math.round(+v.entryBoost) || 6, 1, 6);
+  if (v.groupWaitMin != null && v.groupWaitMin !== "") S.config.groupWaitMin = clamp(Math.round(+v.groupWaitMin) || 5, 5, 240);
   if (v.stickMin != null && v.stickMin !== "") S.config.stickMin = clamp(Math.round(+v.stickMin) || 30, 5, 240);
   if (v.diversityMin != null && v.diversityMin !== "") S.config.diversityMin = clamp(Math.round(+v.diversityMin) || 120, 30, 1440);
   if (v.zoneMaxPct != null && v.zoneMaxPct !== "") S.config.zoneMaxPct = clamp(+v.zoneMaxPct || 1, 0.2, 3);
@@ -7103,7 +7103,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.16";
+var SRV_VER = "AB-210-TRQ-1.1.17";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
