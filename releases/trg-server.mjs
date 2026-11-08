@@ -403,7 +403,6 @@ function waitsDesc() {
   const w = Math.max(5, Math.round(Number(S.config && S.config.groupWaitMin) || 20));
   return [1, 1.5, 2, 2].map((x) => Math.round(w * x) + "m").join("/");
 }
-var ASC = 1.25;
 function ladderOn() {
   return !!(S.config && S.config.ladderMode);
 }
@@ -415,14 +414,12 @@ var ladderShort = () => S.position ? S.position.side === "short" : S.config.dire
 function ladderParts() {
   const equity = (S.exEquity != null ? S.exEquity : S.config.cycleBalance) || 0;
   const share = Math.max(1, equity / 5);
-  const part = Math.max(1, share / 5);
+  const part = Math.max(1, share);
   return [0, 1, 2, 3, 4].map(() => part);
 }
 function groupBudgets(g) {
   const part = ladderParts()[Math.min(g, 4)];
-  const r = [0, 1, 2, 3].map((k) => Math.pow(ASC, k));
-  const sum = r.reduce((a, b) => a + b, 0);
-  return r.map((x) => Math.max(1, part * x / sum));
+  return [0, 1, 2, 3].map(() => Math.max(1, part));
 }
 function groupOrders(g) {
   return (S.grid || []).filter((x) => x.ladderGroup === g && x.origin === "ladder");
@@ -550,7 +547,7 @@ async function placeGroupBounce(g) {
       return;
     }
     const part = ladderParts()[Math.min(g, 4)];
-    const fr = [0.4, 0.25, 0.2, 0.15];
+    const fr = [1, 0.5, 0.5, 0.5];
     const side = short ? "sell" : "buy";
     let placed = 0;
     for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
@@ -558,6 +555,23 @@ async function placeGroupBounce(g) {
       const mult = S.multiplier || 1;
       let q = part * fr[k] * (k === 0 ? entryBoost() : 1) / (mult * z.px);
       q = capEntryQty(q, z.px);
+      {
+        const shareN = Math.max(3, (S.exEquity != null ? S.exEquity : S.config.cycleBalance || 0) / 5);
+        const lev2 = Math.max(1, S.config.leverage || 1);
+        const capN = shareN * 4;
+        const posN0 = S.position ? Math.max(0, (S.position.size || 0) * (S.multiplier || 1) * (S.position.entry || 0)) : 0;
+        const pendN = (S.grid || []).reduce((a, x) => a + (x && !x.reduceOnly && (x.status === "armed" || x.status === "open") ? (x.qty || 0) * (S.multiplier || 1) * (x.price || 0) : 0), 0);
+        const roomN = Math.max(0, capN - posN0 - pendN);
+        let budgetM = shareN * 0.8;
+        if (S.config.mode === "live" && S.exAvail > 0) budgetM = Math.min(budgetM, Math.max(0, S.exAvail * 0.95));
+        const roomM = Math.max(0, budgetM - (posN0 + pendN) / lev2);
+        const cvx = Math.max(1e-12, mult * z.px);
+        const qCap = Math.max(0, Math.min(Math.floor(roomN / cvx), Math.floor(roomM * lev2 / cvx)));
+        const minNotional = Math.min(Math.max(5, shareN * 0.25), shareN);
+        if (qCap * cvx < Math.min(minNotional, shareN * 0.99)) break;
+        if (q > qCap) q = qCap;
+        else if (q * cvx < Math.min(minNotional, shareN * 0.99)) continue;
+      }
       if (!(q >= 1)) continue;
       S.grid.push({
         id: "lb" + g + "_" + k + "_" + Date.now().toString(36),
@@ -579,7 +593,7 @@ async function placeGroupBounce(g) {
     if (placed) {
       S.grid.sort((a, b) => b.price - a.price);
       st.placedAt = Date.now();
-      pushLog("server", "[ladder] \u{1F3AF} \u0635\u064A\u062F \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + "/5 \u0639\u0644\u0649 " + S.config.displaySymbol + ": " + placed + " \u0623\u0648\u0627\u0645\u0631 \u0639\u0646\u062F \u0645\u0646\u0627\u0637\u0642 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062F\u0631\u0648\u0633\u0629 \u2014 \u0627\u0644\u0631\u0626\u064A\u0633\u064A " + fmtPx(chosen[0].px) + " (" + chosen[0].touch + " \u0644\u0645\u0633\u0627\u062A) \u0628\u062D\u062C\u0645 40%\u060C \u0648\u0627\u0644\u0625\u0636\u0627\u0641\u0627\u062A \u0623\u0639\u0645\u0642 \u0639\u0646\u062F \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0645\u062E\u062A\u0628\u0631\u0629 \u0641\u0642\u0637");
+      pushLog("server", "[ladder] \u{1F3AF} \u0635\u064A\u062F \u0627\u0644\u0645\u062C\u0645\u0648\u0639\u0629 " + (g + 1) + "/5 \u0639\u0644\u0649 " + S.config.displaySymbol + ": " + placed + " \u0623\u0648\u0627\u0645\u0631 \u0639\u0646\u062F \u0645\u0646\u0627\u0637\u0642 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062F\u0631\u0648\u0633\u0629 \u2014 \u0627\u0644\u0631\u0626\u064A\u0633\u064A " + fmtPx(chosen[0].px) + " (" + chosen[0].touch + " \u0644\u0645\u0633\u0627\u062A) \u0628\u0648\u0632\u0646 \u0627\u0644\u0646\u0635\u064A\u0628 \u0643\u0627\u0645\u0644\u0627\u064B (\u0636\u062E\u0627\u0645\u0629 v1.1.22)\u060C \u0648\u0627\u0644\u0625\u0636\u0627\u0641\u0627\u062A \u0628\u0623\u0646\u0635\u0627\u0641\u0647 \u0639\u0646\u062F \u0627\u0644\u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0645\u062E\u062A\u0628\u0631\u0629 \u0641\u0642\u0637");
       emit();
     } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 3e5) {
       st.noZoneAt = Date.now();
@@ -3095,7 +3109,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.21 fleet-spread veto-escape active55 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.22 fleet-spread veto-escape active55 heavy-share waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3874,20 +3888,13 @@ function levelQtys(center, n) {
   let budget = Math.max(0, total - used) * (S.regime ? S.regime.sizeMult : 1) * memSizeMult();
   if (c.mode === "live" && S.exAvail > 0) budget = Math.min(budget, Math.max(0, S.exAvail * 0.95));
   else if (c.mode === "live" && S.exEquity > 0) budget = Math.min(budget, Math.max(0, S.exEquity * 0.95 - used));
-  const RATIO = Math.max(1.05, Math.min(2, Number(S.config.sizeRatio) || 1.35));
-  const wrapper = (i) => Math.pow(RATIO, i % 4);
-  const wsum = [1, 2, 3, 4].reduce((a, _v, i) => a + Math.pow(RATIO, i), 0);
-  const groupBudget = budget / 5;
+  const perOrderN = Math.max(3, Number(c.cycleBalance) || 3);
   let m = Math.max(1, n);
-  while (m > 1 && Math.floor(groupBudget / wsum * lev / cv) < 1) m--;
   const out = [];
-  let acc = 0;
   for (let i = 0; i < m; i++) {
-    let q = Math.max(1, Math.floor(groupBudget * wrapper(i) / wsum * lev / cv));
+    let q = Math.max(1, Math.floor(perOrderN / cv));
     if (S.maxOrderQty > 0) q = Math.min(q, S.maxOrderQty);
-    if (acc + q * cv / lev > budget && out.length) break;
     out.push(q);
-    acc += q * cv / lev;
   }
   return out;
 }
@@ -3953,7 +3960,27 @@ function buildGrid(center, wide, initialCount) {
     if (c.direction === "short" && price <= center * (1 + pctA * 0.6)) continue;
     if (c.direction === "long" && price >= center * (1 - step * 0.4)) continue;
     const qi = Math.min(filledN + i - 1, qtys.length - 1);
-    const qty = qtys.length ? qtys[Math.max(0, qi)] : contractsForLevel(center);
+    let qty = qtys.length ? qtys[Math.max(0, qi)] : contractsForLevel(center);
+    {
+      const lev2 = Math.max(1, Number(c.leverage) || 1);
+      const cvx = Math.max(1e-12, (S.multiplier || 1) * price);
+      const shareN = Math.max(3, Number(c.cycleBalance) || 0);
+      const capN = shareN * 4;
+      const posN0 = S.position ? Math.max(0, (S.position.size || 0) * (S.multiplier || 1) * (S.position.entry || 0)) : 0;
+      const oldN = (S.grid || []).reduce((a, g) => a + (g && !g.reduceOnly && (g.status === "armed" || g.status === "open") ? (g.qty || 0) * (S.multiplier || 1) * (g.price || 0) : 0), 0);
+      const locN = grid.reduce((a, g) => a + (g.reduceOnly ? 0 : (g.qty || 0) * (S.multiplier || 1) * (g.price || 0)), 0);
+      let budgetM = Math.max(0, Number(c.cycleBalance) || 0) * 0.8;
+      if (c.mode === "live" && S.exAvail > 0) budgetM = Math.min(budgetM, Math.max(0, S.exAvail * 0.95));
+      const usedM = (posN0 + oldN) / lev2;
+      const roomM = Math.max(0, budgetM - usedM - locN / lev2);
+      const roomN = Math.max(0, capN - posN0 - oldN - locN);
+      const qOrd = Math.floor(shareN / cvx);
+      const qCap = Math.max(0, Math.min(Math.floor(roomN / cvx), Math.floor(roomM * lev2 / cvx), qOrd));
+      const minNotional = Math.min(Math.max(5, shareN * 0.25), shareN);
+      if (qCap * cvx < Math.min(minNotional, shareN * 0.99)) continue;
+      if (qty > qCap) qty = qCap;
+      else if (qty * cvx < Math.min(minNotional, shareN * 0.99)) continue;
+    }
     const staged = initialCount != null && i > initialCount;
     grid.push({
       id: uid("lvl"),
@@ -6653,7 +6680,7 @@ function startBot() {
   try {
     if (S.config.mode !== "live" && (Number(S.config.cycleBalance) || 0) < 200 && !S._capHintAt) {
       S._capHintAt = Date.now();
-      pushLog("server", "\u26A0\uFE0F \u0646\u0635\u064A\u0628 \u0647\u0630\u0627 \u0627\u0644\u0645\u062D\u0631\u0643 " + S.config.cycleBalance + "$ \u0641\u0642\u0637 \u2014 \u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0633\u062A\u0643\u0648\u0646 \u0628\u0636\u0639\u0629 \u062F\u0648\u0644\u0627\u0631\u0627\u062A \u0648\u062C\u0646\u064A\u0647\u0627 \u0633\u0646\u062A\u064A\u0645\u0627\u062A. \u0627\u0631\u0641\u0639 \xAB\u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629\xBB \u0645\u0646 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A (\u0631\u0635\u064A\u062F \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0627\u0644\u0643\u0644\u064A \u2014 \u064A\u064F\u0642\u0633\u064E\u0651\u0645 \u0639\u0644\u0649 5 \u0645\u062D\u0631\u0643\u0627\u062A) \u0644\u062A\u0635\u0628\u062D \u0627\u0644\u0635\u0641\u0642\u0627\u062A \u0628\u0630\u0627\u062A \u0645\u0639\u0646\u0649");
+      pushLog("server", "\u{1F4CA} \u0646\u0635\u064A\u0628 \u0647\u0630\u0627 \u0627\u0644\u0645\u062D\u0631\u0643 " + S.config.cycleBalance + "$ \u2014 \u0643\u0644 \u0623\u0645\u0631 \u0645\u0646\u0637\u0642\u0629 \u064A\u0632\u0646 \u0627\u0644\u0646\u0635\u064A\u0628 \u0643\u0627\u0645\u0644\u0627\u064B (\u0636\u062E\u0627\u0645\u0629 v1.1.22) \u0648\u0633\u0642\u0641 \u0627\u0644\u062A\u0639\u0631\u0636 4\xD7 \u2014 \u0631\u0641\u0639 \xAB\u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629\xBB \u064A\u0643\u0628\u0631 \u0627\u0644\u0635\u0641\u0642\u0627\u062A \u062E\u0637\u064A\u0627\u064B");
     }
   } catch {
   }
@@ -7202,7 +7229,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.21";
+var SRV_VER = "AB-210-TRQ-1.1.22";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7386,6 +7413,7 @@ function mergedState(selIn = 0) {
   st.slipCost = live.reduce((a, x) => a + (x.slipCost || 0), 0);
   st.fundingPaid = live.reduce((a, x) => a + (x.fundingPaid || 0), 0);
   st.config = { ...primary.config || {}, cycleBalance: live.reduce((a, x) => a + (x.config?.cycleBalance || 0), 0) };
+  st.fleetShare = primary.config?.cycleBalance || 0;
   st.status = live.some((x) => x.status === "running") ? "running" : live[0]?.status || "idle";
   st.fleet = live.map((x, idx2) => ({
     slot: idx2 + 1,
