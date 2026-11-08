@@ -223,7 +223,8 @@ function HomeScreen() {
       <div className="grid3">
         <div className="chip"><small>الرافعة</small><b>{'×' + S.config.leverage}</b></div>
         <div className="chip"><small>المستويات</small><b>{effLevels()}{effLevels() !== S.config.levels ? <span style={{ opacity: .55, fontSize: 10 }}> /{S.config.levels}</span> : null}</b></div>
-        <div className="chip"><small>رصيد الدورة</small><b>{'$' + S.config.cycleBalance}</b></div>
+        <div className="chip"><small>حقوق المنصة</small><b>{S.exEquity != null ? '$' + Number(S.exEquity).toFixed(2) : '—'}</b></div>
+        <div className="chip"><small>حصة كل محرك</small><b>{'$' + (S.fleetShare || (S.config.cycleBalance / 5))}</b></div>
         <div className="chip"><small>خطوة الشبكة %</small><b>{S.config.gridStepPct}</b></div>
         <div className="chip"><small>صيد %</small><b>{S.config.huntPct}</b></div>
         <div className="chip"><small>الاتجاه</small><b>{S.config.directionMode === 'auto' ? 'تلقائي' : (S.config.direction === 'short' ? 'شورت' : 'لونغ')}</b></div>

@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.21';
+const SRV_VER = 'AB-210-TRQ-1.1.22';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -188,6 +188,10 @@ function mergedState(selIn = 0) {
   st.slipCost = live.reduce((a, x) => a + (x.slipCost || 0), 0);
   st.fundingPaid = live.reduce((a, x) => a + (x.fundingPaid || 0), 0);
   st.config = { ...(primary.config || {}), cycleBalance: live.reduce((a, x) => a + (x.config?.cycleBalance || 0), 0) };
+  /* ─── v1.1.22 «ضخامة»: وضوح الرصيد (شكوى المالك «يتم تعديله تلقائياً إلى
+     500$») — المجموع هو حقوق الحساب كاملاً موزعة على المحركات، والوحيدة
+     المعروضة الآن: حقوق المنصة الحقيقية + حصة كل محرك (خُمس الحقوق) ─── */
+  st.fleetShare = primary.config?.cycleBalance || 0;
   st.status = live.some(x => x.status === 'running') ? 'running' : (live[0]?.status || 'idle');
   st.fleet = live.map((x, idx) => ({
     slot: idx + 1, symbol: x.config?.symbol, disp: x.config?.displaySymbol,

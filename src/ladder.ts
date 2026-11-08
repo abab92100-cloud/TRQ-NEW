@@ -38,20 +38,23 @@ function ladderState() {
 // اتجاه الصفقة الفعلي: المركز القائم أولاً (استئناف)، وإلا اتجاه الدراسة
 const ladderShort = () => (S.position ? S.position.side === 'short' : S.config.direction === 'short');
 
-// نصيب المحرك (رصيد المنصة ÷ 5 أساطيل) مقسّماً 5 أجزاء متساوية — مواصفة المالك
+// نصيب المحرك (رصيد المنصة ÷ 5 أساطيل) — v1.1.22 «ضخامة» (أمر المالك
+// 8 نوفمبر مساءً: «الأرباح بسيطة جداً»): كل مجموعة تزن نصيب المحرك كاملاً
+// لا خُمسه — كان part = share/5 = 20$ فتفتّت أوامر الصيد إلى 3-5$ لكل
+// منطقة وربحها سنتات. الآن الرئيسي = النصيب كاملاً والإضافات أنصافه،
+// وسقف التعرض الكلي 4× يُفرض في التسليح (المركز + الأوامر المسلحة) ───
 export function ladderParts() {
   const equity = (S.exEquity != null ? S.exEquity : S.config.cycleBalance) || 0;
   const share = Math.max(1, equity / 5);   // نصيب الأسطول من المنصة
-  const part = Math.max(1, share / 5);    // جزء متساوٍ لكل مجموعة من الخمس
+  const part = Math.max(1, share);         // وزن المجموعة = النصيب كاملاً (لا خُمه)
   return [0, 1, 2, 3, 4].map(() => part);
 }
 
-// ميزانيات أوامر المجموعة g: الجزء ÷ 4 أوامر تصاعدياً ×1.25 — أول أمر أصغرها
+// ميزانيات أوامر المجموعة g (وضع التباعد الاحتياطي): أوامر متساوية بوزن
+// النصيب — «حجم الأوامر المتساوية» أمر المالك، والسقف الكلي يضبط الباقي
 function groupBudgets(g: number) {
   const part = ladderParts()[Math.min(g, 4)];
-  const r = [0, 1, 2, 3].map(k => Math.pow(ASC, k));
-  const sum = r.reduce((a, b) => a + b, 0);
-  return r.map(x => Math.max(1, (part * x) / sum));
+  return [0, 1, 2, 3].map(() => Math.max(1, part));
 }
 
 function groupOrders(g: number) { return (S.grid || []).filter(x => x.ladderGroup === g && x.origin === 'ladder'); }
@@ -189,7 +192,7 @@ async function placeGroupBounce(g: number) {
       return;
     }
     const part = ladderParts()[Math.min(g, 4)];
-    const fr = [0.40, 0.25, 0.20, 0.15]; // الرئيسي الأضخم عند أفضل نقطة (أمر المالك)
+    const fr = [1.0, 0.5, 0.5, 0.5]; // v1.1.22 «ضخامة»: الرئيسي بالنصيب كاملاً والإضافات بأنصافه (كان 40/25/20/15 من خُمس النصيب = أوامر 3-5$)
     const side = short ? 'sell' : 'buy';
     let placed = 0;
     for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
@@ -197,6 +200,24 @@ async function placeGroupBounce(g: number) {
       const mult = S.multiplier || 1;
       let q = (part * fr[k] * (k === 0 ? entryBoost() : 1)) / (mult * z.px); // أول دخول عند أفضل منطقة بحجم مضاعف (أمر المالك 7 نوفمبر)
       q = capEntryQty(q, z.px);
+      /* ─── v1.1.22 «ضخامة»: سقف التعرض الكلي 4× نصيب المحرك (قاعدة المالك)
+         يُفرض على الصيد نفسه — المركز القائم + كل أوامر الدخول المسلحة ─── */
+      { const shareN = Math.max(3, (S.exEquity != null ? S.exEquity : S.config.cycleBalance || 0) / 5);
+        const lev2 = Math.max(1, S.config.leverage || 1);
+        const capN = shareN * 4;
+        const posN0 = S.position ? Math.max(0, (S.position.size || 0) * (S.multiplier || 1) * (S.position.entry || 0)) : 0;
+        const pendN = (S.grid || []).reduce((a, x) => a + ((x && !x.reduceOnly && (x.status === 'armed' || x.status === 'open')) ? (x.qty || 0) * (S.multiplier || 1) * (x.price || 0) : 0), 0);
+        const roomN = Math.max(0, capN - posN0 - pendN);
+        let budgetM = shareN * 0.80; // 20% احتياطي هامش — قاعدة المالك
+        if (S.config.mode === 'live' && S.exAvail > 0) budgetM = Math.min(budgetM, Math.max(0, S.exAvail * 0.95));
+        const roomM = Math.max(0, budgetM - (posN0 + pendN) / lev2);
+        const cvx = Math.max(1e-12, mult * z.px);
+        const qCap = Math.max(0, Math.min(Math.floor(roomN / cvx), Math.floor(roomM * lev2 / cvx)));
+        // لا أوامر تافهة (ضخامة): المنطقة التي لا تجد ربع النصيب لا تُسلَّح
+        const minNotional = Math.min(Math.max(5, shareN * 0.25), shareN);
+        if (qCap * cvx < Math.min(minNotional, shareN * 0.99)) break; // السقف اكتمل — لا مزيد من مناطق هذه المجموعة
+        if (q > qCap) q = qCap;
+        else if (q * cvx < Math.min(minNotional, shareN * 0.99)) continue; }
       if (!(q >= 1)) continue;
       S.grid.push({
         id: 'lb' + g + '_' + k + '_' + Date.now().toString(36),
@@ -212,7 +233,7 @@ async function placeGroupBounce(g: number) {
       st.placedAt = Date.now();
       pushLog('server', '[ladder] 🎯 صيد المجموعة ' + (g + 1) + '/5 على ' + S.config.displaySymbol + ': ' + placed +
         ' أوامر عند مناطق ارتداد مدروسة — الرئيسي ' + fmtPx(chosen[0].px) + ' (' + chosen[0].touch +
-        ' لمسات) بحجم 40%، والإضافات أعمق عند المناطق المختبرة فقط');
+        ' لمسات) بوزن النصيب كاملاً (ضخامة v1.1.22)، والإضافات بأنصافه عند المناطق المختبرة فقط');
       emit();
     } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 300000) { st.noZoneAt = Date.now();
       pushLog('server', '[ladder] 🎯 أحجام المناطق المدروسة أصغر من حد المنصة — صيد هادئ'); }
