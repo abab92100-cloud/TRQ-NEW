@@ -452,8 +452,10 @@ function bounceOn() {
   return S.config && S.config.bounceMode !== false;
 }
 var ZONE_CLUSTER_PCT = 25e-4;
-var ZONE_MAX_DIST_PCT = 0.015;
 var ZONE_MIN_DIST_PCT = 6e-4;
+function zoneMaxPct() {
+  return Math.min(3, Math.max(0.2, Number(S && S.config && S.config.zoneMaxPct) || 1));
+}
 var _zoneCache = null;
 var _zoneFails = 0;
 async function bounceZones(short) {
@@ -526,7 +528,7 @@ async function placeGroupBounce(g) {
     const dir2 = short ? 1 : -1;
     let pool = zones.filter((z) => {
       const d = (z.px - px0) / px0 * dir2;
-      return d >= ZONE_MIN_DIST_PCT && d <= ZONE_MAX_DIST_PCT;
+      return d >= ZONE_MIN_DIST_PCT && d <= zoneMaxPct() / 100;
     });
     const avg = S.position ? S.position.entry : 0;
     if (g > 0 && avg > 0) pool = pool.filter((z) => (z.px - avg) * dir2 > 0);
@@ -534,7 +536,11 @@ async function placeGroupBounce(g) {
     if (exl > 0) pool = pool.filter((z) => short ? z.px < exl * 0.98 : z.px > exl * 1.02);
     const existing = (S.grid || []).filter((l) => l.origin === "ladder" && (l.status === "armed" || l.status === "open" || l.filledAt));
     pool = pool.filter((z) => !existing.some((l) => l.price > 0 && Math.abs(l.price - z.px) / z.px < 15e-4));
-    pool.sort((a, b) => b.touch - a.touch || Math.abs(a.px - px0) - Math.abs(b.px - px0));
+    pool.sort((a, b) => {
+      const am = Math.min(a.touch, 2), bm = Math.min(b.touch, 2);
+      if (am !== bm) return bm - am;
+      return Math.abs(a.px - px0) - Math.abs(b.px - px0);
+    });
     const chosen = pool.slice(0, GROUP_SIZE);
     if (!chosen.length) {
       if (!st.noZoneAt || Date.now() - st.noZoneAt > 3e5) {
@@ -765,6 +771,9 @@ function dynamicTpNet() {
   target = Math.min(target, Math.max(0.3, (S.config && S.config.cycleBalance || 0) * 0.015));
   target = Math.max(target, bal * 24e-4);
   target = Math.min(target, Math.max(0.3, (S.config && S.config.cycleBalance || 0) * 0.015));
+  if (hf) target = Math.min(target, 0.05);
+  const hrPct = Math.min(1.5, Math.max(0.24, Number(S.config && S.config.tpMovePct) || 0.35));
+  target = Math.min(target, bal * hrPct / 100);
   if (hf) target = Math.min(target, 0.05);
   return Math.max(0.08, Math.round(target * 100) / 100);
 }
@@ -1199,8 +1208,12 @@ var S = {
     // انتظار المجموعات بالدقائق (v1.1.12 «تسليح مستمر»): بدل 2/3/4/4 ساعات — 20 دقيقة افتراضياً، قابل للضبط 5-240
     stickMin: 30,
     // مهلة الثبات بالدقائق (v1.1.13 «الثبات يصطاد»): لا تدوير طالما توجد مناطق مسلحة ضمن هذه المهلة — 30 دقيقة افتراضياً
-    diversityMin: 120
+    diversityMin: 120,
     // نافذة التنويع بالدقائق (v1.1.14 «العودة الساخنة»): العملة المجناة تُحظر ساعتين فقط بدل 24 ساعة
+    zoneMaxPct: 1,
+    // أبعد منطقة تسليح % (v1.1.16 «اضرب واهرب»): مناطق قريبة يصلها السعر بسرعة — قابل للضبط 0.2-3
+    tpMovePct: 0.35
+    // سقف حركة سعر الهدف % (v1.1.16): الجني ضمن حركة سريعة منالة — قابل للضبط 0.24-1.5
   },
   status: "idle",
   heartbeat: 0,
@@ -3016,13 +3029,13 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.15 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied cap5k" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.16 waits " + waitsDesc() + " main40% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.35) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
   const c = S.config;
   if (!cfg) return false;
-  const fields = ["gridStepPct", "levels", "leverage", "tpUsd", "tpNet", "huntPct", "directionMode", "hfMode", "bounceMode"];
+  const fields = ["gridStepPct", "levels", "leverage", "tpUsd", "tpNet", "huntPct", "directionMode", "hfMode", "bounceMode", "zoneMaxPct", "tpMovePct"];
   let changed = 0;
   for (const f of fields) {
     if (cfg[f] != null && c[f] !== cfg[f]) {
@@ -6807,6 +6820,8 @@ function saveCfg(v) {
   if (v.groupWaitMin != null && v.groupWaitMin !== "") S.config.groupWaitMin = clamp(Math.round(+v.groupWaitMin) || 20, 5, 240);
   if (v.stickMin != null && v.stickMin !== "") S.config.stickMin = clamp(Math.round(+v.stickMin) || 30, 5, 240);
   if (v.diversityMin != null && v.diversityMin !== "") S.config.diversityMin = clamp(Math.round(+v.diversityMin) || 120, 30, 1440);
+  if (v.zoneMaxPct != null && v.zoneMaxPct !== "") S.config.zoneMaxPct = clamp(+v.zoneMaxPct || 1, 0.2, 3);
+  if (v.tpMovePct != null && v.tpMovePct !== "") S.config.tpMovePct = clamp(+v.tpMovePct || 0.35, 0.24, 1.5);
   S.config.directionMode = v.directionMode;
   S.config.mode = v.mode;
   if (v.ladderMode != null) S.config.ladderMode = !!v.ladderMode;
@@ -7088,7 +7103,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.15";
+var SRV_VER = "AB-210-TRQ-1.1.16";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
