@@ -38,7 +38,7 @@ curl -fsSL -o ~/trg-server.mjs "https://raw.githubusercontent.com/abab92100-clou
 nohup node ~/trg-server.mjs > ~/trg-server.log 2>&1 &
 ```
 
-التطبيق يكتشف السيرفر تلقائيًا على `127.0.0.1:9010` (منسّق + 5 محركات على 9011-9015) ويتحول لوضع "السيرفر": سحب `/state` دوري، وأوامر عبر `/cmd` بتوكن `X-TRQ-Token`. المنسّق يمرر توكن الأسطول للمحركات عبر متغير البيئة `ABKING_FLEET_TOKEN` عند إطلاقها.
+التطبيق يكتشف السيرفر تلقائيًا على `127.0.0.1:9010` (منسّق + 5 محركات على 9011-9015) ويتحول لوضع "السيرفر": سحب `/state` دوري، وأوامر عبر `/cmd` بتوكن `X-TRQ-Token`. المنسّق يمرر توكن الأسطيل للمحركات عبر متغير البيئة `ABKING_FLEET_TOKEN` عند إطلاقها.
 
 ## الأمان
 
@@ -53,3 +53,4 @@ nohup node ~/trg-server.mjs > ~/trg-server.log 2>&1 &
 https://github.com/abab92100-cloud/TRQ-NEW/releases
 
 <!-- build-verification 2026-11-05: signature stability check -->
+<!-- build-retrigger 2026-11-08: v1.1.21 rebuild after transient gradle runner network timeout -->
