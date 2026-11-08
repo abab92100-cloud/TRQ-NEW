@@ -1841,7 +1841,23 @@ async function backgroundPipeline() {
         const taken = (S._fleetTaken || []).map((x) => String(x));
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
         const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 55 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
-        const best = qual.length ? qual[(SL - 1) % qual.length] : null;
+        let best = null, __pureSkip = false;
+        if (qual.length && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
+          const __start = (SL - 1) % qual.length;
+          let __tried = 0;
+          for (let qi = __start; qi < qual.length && __tried < 3; qi++) {
+            __tried++;
+            const bc = await bookClean(String(qual[qi].symbol));
+            if (bc.ok) {
+              best = qual[qi];
+              break;
+            }
+            if (Date.now() - (S._pureLogAt || 0) > 6e4) {
+              S._pureLogAt = Date.now();
+              pushLog("server", "\u{1F6AB} \u0646\u0642\u0627\u0621: " + qual[qi].disp + " \u0645\u0631\u0641\u0648\u0636 \u0642\u0628\u0644 \u0627\u0644\u0648\u0635\u0648\u0644 (" + bc.reason + ") \u2014 \u064A\u064F\u062C\u0631\u064E\u0651\u0628 \u0645\u0631\u0634\u062D \u0623\u0646\u0638\u0641");
+            }
+          }
+        } else if (qual.length) __pureSkip = true;
         if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
           S._oppPickAt = Date.now();
           pushLog("server", "\u{1F3AF} \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629: " + best.disp + " (\u062F\u0631\u062C\u0629 " + best.score + " \xB7 \u0633\u064A\u0648\u0644\u0629 " + Math.round((Number(best.turnover) || 0) / 1e6) + "M) \u2014 \u062A\u064F\u062F\u0631\u0633 \u062B\u0645 \u062A\u064F\u0641\u062A\u062D \u0627\u0644\u0635\u0641\u0642\u0629");
@@ -1862,9 +1878,9 @@ async function backgroundPipeline() {
           }
           return;
         }
-        if (!best && (!S._noOppAt || Date.now() - S._noOppAt > 6e5)) {
+        if (!best && !__pureSkip && (!S._noOppAt || Date.now() - S._noOppAt > 6e5)) {
           S._noOppAt = Date.now();
-          pushLog("server", "\u{1F550} \u0644\u0627 \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629 \u0627\u0644\u0622\u0646 (\u062F\u0631\u062C\u0629 55+ \u0648\u0633\u064A\u0648\u0644\u0629 3M+) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0625\u062C\u0628\u0627\u0631\u064A");
+          pushLog("server", qual.length ? "\u{1F9FC} \u0646\u0642\u0627\u0621: \u062F\u0641\u0627\u062A\u0631 \u0643\u0644 \u0627\u0644\u0645\u0631\u0634\u062D\u064A\u0646 \u0642\u0630\u0631\u0629 \u0627\u0644\u0622\u0646 (\u0633\u0628\u0631\u064A\u062F/\u062C\u062F\u0627\u0631 \u0644\u0627\u0635\u0642/\u062D\u064A\u062A\u0627\u0646) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0646\u0638\u0627\u0641\u0629 \u0627\u0644\u0633\u0648\u0642 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0642\u0633\u0631\u064A" : "\u{1F550} \u0644\u0627 \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629 \u0627\u0644\u0622\u0646 (\u062F\u0631\u062C\u0629 55+ \u0648\u0633\u064A\u0648\u0644\u0629 3M+) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0625\u062C\u0628\u0627\u0631\u064A");
         }
       }
     }
@@ -2234,7 +2250,23 @@ async function postHarvestReselect() {
         const taken = (S._fleetTaken || []).map((x) => String(x));
         const SL = parseInt(String(process.env?.ABKING_SLOT || ""), 10) || 1;
         const qual = r.list.filter((l) => l.symbol !== S.config.symbol && Number(l.score || 0) >= 55 && (Number(l.turnover) || 0) >= 3e6 && freshC(l) && !taken.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2));
-        const best = qual.length ? qual[(SL - 1) % qual.length] : null;
+        let best = null, __pureSkip = false;
+        if (qual.length && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
+          const __start = (SL - 1) % qual.length;
+          let __tried = 0;
+          for (let qi = __start; qi < qual.length && __tried < 3; qi++) {
+            __tried++;
+            const bc = await bookClean(String(qual[qi].symbol));
+            if (bc.ok) {
+              best = qual[qi];
+              break;
+            }
+            if (Date.now() - (S._pureLogAt || 0) > 6e4) {
+              S._pureLogAt = Date.now();
+              pushLog("server", "\u{1F6AB} \u0646\u0642\u0627\u0621: " + qual[qi].disp + " \u0645\u0631\u0641\u0648\u0636 \u0642\u0628\u0644 \u0627\u0644\u0648\u0635\u0648\u0644 (" + bc.reason + ") \u2014 \u064A\u064F\u062C\u0631\u064E\u0651\u0628 \u0645\u0631\u0634\u062D \u0623\u0646\u0638\u0641");
+            }
+          }
+        } else if (qual.length) __pureSkip = true;
         if (best && (!S._oppPickAt || Date.now() - S._oppPickAt > 6e4)) {
           S._oppPickAt = Date.now();
           pushLog("server", "\u{1F3AF} \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629: " + best.disp + " (\u062F\u0631\u062C\u0629 " + best.score + " \xB7 \u0633\u064A\u0648\u0644\u0629 " + Math.round((Number(best.turnover) || 0) / 1e6) + "M) \u2014 \u062A\u064F\u062F\u0631\u0633 \u062B\u0645 \u062A\u064F\u0641\u062A\u062D \u0627\u0644\u0635\u0641\u0642\u0629");
@@ -2255,9 +2287,9 @@ async function postHarvestReselect() {
           }
           return;
         }
-        if (!best && (!S._noOppAt || Date.now() - S._noOppAt > 6e5)) {
+        if (!best && !__pureSkip && (!S._noOppAt || Date.now() - S._noOppAt > 6e5)) {
           S._noOppAt = Date.now();
-          pushLog("server", "\u{1F550} \u0644\u0627 \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629 \u0627\u0644\u0622\u0646 (\u062F\u0631\u062C\u0629 55+ \u0648\u0633\u064A\u0648\u0644\u0629 3M+) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0625\u062C\u0628\u0627\u0631\u064A");
+          pushLog("server", qual.length ? "\u{1F9FC} \u0646\u0642\u0627\u0621: \u062F\u0641\u0627\u062A\u0631 \u0643\u0644 \u0627\u0644\u0645\u0631\u0634\u062D\u064A\u0646 \u0642\u0630\u0631\u0629 \u0627\u0644\u0622\u0646 (\u0633\u0628\u0631\u064A\u062F/\u062C\u062F\u0627\u0631 \u0644\u0627\u0635\u0642/\u062D\u064A\u062A\u0627\u0646) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0646\u0638\u0627\u0641\u0629 \u0627\u0644\u0633\u0648\u0642 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0642\u0633\u0631\u064A" : "\u{1F550} \u0644\u0627 \u0641\u0631\u0635\u0629 \u0645\u0624\u0647\u0644\u0629 \u0627\u0644\u0622\u0646 (\u062F\u0631\u062C\u0629 55+ \u0648\u0633\u064A\u0648\u0644\u0629 3M+) \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0628\u0644\u0627 \u062F\u062E\u0648\u0644 \u0625\u062C\u0628\u0627\u0631\u064A");
         }
       }
     }
@@ -2265,7 +2297,19 @@ async function postHarvestReselect() {
     const cands = r.list.filter((l) => l.symbol !== S.config.symbol && (l.score || 0) >= 55 && !__tk.includes(String(l.symbol)));
     const bestOther = cands.find((l) => fresh(l)) || cands[0];
     const freshBest = r.list.filter((l) => fresh(l) && l.symbol !== S.config.symbol && !__tk.includes(String(l.symbol))).find((l) => (l.score || 0) >= 45);
-    const pick = bestOther || freshBest;
+    let pick = null;
+    for (const __pc of [bestOther, freshBest]) {
+      if (!__pc) continue;
+      const bc = await bookClean(String(__pc.symbol));
+      if (bc.ok) {
+        pick = __pc;
+        break;
+      }
+      if (Date.now() - (S._pureLogAt || 0) > 6e4) {
+        S._pureLogAt = Date.now();
+        pushLog("server", "\u{1F6AB} \u0646\u0642\u0627\u0621: " + __pc.disp + " \u0645\u0631\u0641\u0648\u0636 \u0642\u0628\u0644 \u0627\u0644\u0648\u0635\u0648\u0644 (" + bc.reason + ") \u2014 \u064A\u064F\u062C\u0631\u064E\u0651\u0628 \u0628\u062F\u064A\u0644 \u0623\u0646\u0638\u0641");
+      }
+    }
     S._reselectDone = true;
     S._nextReady = false;
     S._nextSymbol = null;
@@ -2540,7 +2584,15 @@ async function maybeSwitchSymbol() {
   if (studying()) return;
   if (vetoStuck()) {
     const tkEsc0 = (S._fleetTaken || []).map((x) => String(x));
-    const alt0 = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc0.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2)).find((l) => (l.score || 0) >= 55);
+    const altC = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc0.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2) && (l.score || 0) >= 55);
+    let alt0 = null;
+    for (let ai = 0; ai < altC.length && ai < 3; ai++) {
+      const bc = await bookClean(String(altC[ai].symbol));
+      if (bc.ok) {
+        alt0 = altC[ai];
+        break;
+      }
+    }
     if (alt0) {
       _lastSwitchAt = Date.now();
       pushLog("server", "\u{1F513} \u062A\u062D\u0631\u064A\u0631 \u0645\u0646 \u0627\u0644\u0641\u064A\u062A\u0648: " + S.config.displaySymbol + " \u0631\u0641\u0636 \u0627\u0644\u0641\u064A\u062A\u0648 \u062F\u062E\u0648\u0644\u0647\u0627 \u0645\u0646\u0630 \u0627\u0644\u0648\u0635\u0648\u0644 \u0628\u0644\u0627 \u0623\u064A \u062A\u0646\u0641\u064A\u0630 \u2014 \u0627\u0646\u062A\u0642\u0627\u0644 \u0625\u0644\u0649 " + alt0.disp + " (" + alt0.score + ") \u0648\u062D\u0638\u0631 \u0627\u0644\u0639\u0648\u062F\u0629");
@@ -2583,7 +2635,15 @@ async function maybeSwitchSymbol() {
     if (!r || !r.list || !r.list.length) return;
     const cur = r.list.find((l) => l.symbol === S.config.symbol);
     const __tkSw = (S._fleetTaken || []).map((x) => String(x));
-    const best = r.list.filter((l) => l.symbol !== S.config.symbol && !__tkSw.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2)).find((l) => (l.score || 0) >= 55);
+    const bestC = r.list.filter((l) => l.symbol !== S.config.symbol && !__tkSw.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2) && (l.score || 0) >= 55);
+    let best = null;
+    for (let bi = 0; bi < bestC.length && bi < 3; bi++) {
+      const bc = await bookClean(String(bestC[bi].symbol));
+      if (bc.ok) {
+        best = bestC[bi];
+        break;
+      }
+    }
     if (!best) return;
     const afterHarvest = !!(S._harvestAt && Date.now() - S._harvestAt < 10 * 60 * 1e3);
     const idleMs = Date.now() - (S._dwellAt || S.startedAt || S._savedAt || Date.now());
@@ -3113,7 +3173,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.24 storm-in fleet-spread veto-escape active55 heavy-share fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.25 storm-in fleet-spread veto-escape active55 heavy-share pure-pick fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -3526,6 +3586,48 @@ function bookQuality() {
 function medLevelSz(ob) {
   const s = [...ob.bids.slice(0, 10), ...ob.asks.slice(0, 10)].map((x) => x.size).sort((a, b) => a - b);
   return s.length ? s[Math.floor(s.length / 2)] : 0;
+}
+async function bookClean(sym) {
+  try {
+    const pc = (S._pureCache || {})[sym];
+    if (pc && Date.now() - pc.at < 3e4) return { ok: !!pc.ok, reason: String(pc.reason || "") };
+    const fin = (ok, reason) => {
+      S._pureCache = S._pureCache || {};
+      S._pureCache[sym] = { at: Date.now(), ok, reason };
+      return { ok, reason };
+    };
+    const ob = await fetchBook(sym);
+    if (!ob || !ob.bids.length || !ob.asks.length) return fin(true, "");
+    const bb = ob.bids[0].price, ba = ob.asks[0].price;
+    if (!(bb > 0 && ba > 0)) return fin(true, "");
+    const mid = (bb + ba) / 2, sp = (ba - bb) / mid * 100;
+    if (sp > 0.5) return fin(false, "\u0633\u0628\u0631\u064A\u062F " + sp.toFixed(2) + "%");
+    const medL = medLevelSz(ob);
+    if (medL > 0) {
+      for (const a of ob.asks.slice(0, 5)) if (a.price > mid && (a.price - mid) / mid * 100 < 0.07 && a.size > medL * 8) return fin(false, "\u062C\u062F\u0627\u0631 \u0628\u064A\u0639 \u0644\u0627\u0635\u0642 \u0641\u0648\u0642 \u0627\u0644\u0633\u0639\u0631");
+      for (const b of ob.bids.slice(0, 5)) if (b.price < mid && (mid - b.price) / mid * 100 < 0.07 && b.size > medL * 8) return fin(false, "\u062C\u062F\u0627\u0631 \u0634\u0631\u0627\u0621 \u0644\u0627\u0635\u0642 \u062A\u062D\u062A \u0627\u0644\u0633\u0639\u0631");
+    }
+    const tp = await fetchTape(sym).catch(() => null);
+    if (tp && tp.length >= 6) {
+      let b = 0, s = 0;
+      const sizes = tp.map((x) => x.size).sort((x, y) => x - y);
+      const med = sizes[Math.floor(sizes.length / 2)] || 1;
+      let wb = 0, ws2 = 0;
+      for (const x of tp) {
+        if (x.side === "buy") b += x.size;
+        else s += x.size;
+        if (x.size > med * 5) {
+          if (x.side === "buy") wb += x.size;
+          else ws2 += x.size;
+        }
+      }
+      const tot = b + s || 1, wtot = wb + ws2 || 1;
+      if ((wb + ws2) / tot > 0.4 && Math.abs((wb - ws2) / wtot) > 0.7) return fin(false, "\u0633\u064A\u0644 \u062D\u064A\u062A\u0627\u0646 \u0645\u0647\u064A\u0645\u0646");
+    }
+    return fin(true, "");
+  } catch {
+    return { ok: true, reason: "" };
+  }
 }
 function priceKick() {
   const t = S.priceTrail || [];
@@ -7233,7 +7335,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.24";
+var SRV_VER = "AB-210-TRQ-1.1.25";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
