@@ -2520,35 +2520,41 @@ async function maybeSwitchSymbol() {
   }
   if (Date.now() - _lastSwitchAt < 45e3) return;
   if (studying()) return;
+  if (vetoStuck()) {
+    const tkEsc0 = (S._fleetTaken || []).map((x) => String(x));
+    const alt0 = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc0.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2)).find((l) => (l.score || 0) >= 55);
+    if (alt0) {
+      _lastSwitchAt = Date.now();
+      pushLog("server", "\u{1F513} \u062A\u062D\u0631\u064A\u0631 \u0645\u0646 \u0627\u0644\u0641\u064A\u062A\u0648: " + S.config.displaySymbol + " \u0631\u0641\u0636 \u0627\u0644\u0641\u064A\u062A\u0648 \u062F\u062E\u0648\u0644\u0647\u0627 \u0645\u0646\u0630 \u0627\u0644\u0648\u0635\u0648\u0644 \u0628\u0644\u0627 \u0623\u064A \u062A\u0646\u0641\u064A\u0630 \u2014 \u0627\u0646\u062A\u0642\u0627\u0644 \u0625\u0644\u0649 " + alt0.disp + " (" + alt0.score + ") \u0648\u062D\u0638\u0631 \u0627\u0644\u0639\u0648\u062F\u0629");
+      toast("\u{1F513} \u0627\u0646\u062A\u0642\u0627\u0644: " + alt0.disp + " \u2014 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0628\u062F\u0644 \u0627\u0644\u0641\u064A\u062A\u0648");
+      try {
+        S.recentCoins = S.recentCoins || {};
+        S.recentCoins[S.config.symbol] = Date.now();
+      } catch {
+      }
+      saveCfg({
+        symbol: alt0.symbol,
+        leverage: S.config.leverage,
+        levels: S.config.levels,
+        gridStepPct: S.config.gridStepPct,
+        huntPct: S.config.huntPct,
+        tpNet: S.config.tpNet,
+        tpUsd: S.config.tpUsd,
+        cycleBalance: S.config.cycleBalance,
+        directionMode: S.config.directionMode,
+        mode: S.config.mode,
+        sound: S.sound,
+        soundTone: S.soundTone
+      });
+      return;
+    }
+    if (!S._vetoEscAt || Date.now() - S._vetoEscAt > 6e5) {
+      S._vetoEscAt = Date.now();
+      pushLog("server", "\u{1F513} \u0627\u0644\u0641\u064A\u062A\u0648 \u064A\u062D\u062A\u062C\u0632 " + S.config.displaySymbol + " \u0648\u0644\u0627 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0645\u0624\u0647\u0644 \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0641\u0631\u0635\u0629");
+    }
+  }
   if (stickyArmed()) {
-    if (vetoStuck()) {
-      const tkEsc = (S._fleetTaken || []).map((x) => String(x));
-      const alt = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc.includes(String(l.symbol)) && !(l.spread > 0.2)).find((l) => (l.score || 0) >= 55);
-      if (alt) {
-        _lastSwitchAt = Date.now();
-        pushLog("server", "\u{1F513} \u062A\u062D\u0631\u064A\u0631 \u0645\u0646 \u0627\u0644\u0641\u064A\u062A\u0648: " + S.config.displaySymbol + " \u0645\u0646\u0627\u0637\u0642\u0647\u0627 \u0645\u0633\u0644\u062D\u0629 \u0645\u0646\u0630 " + Math.round((Date.now() - (Number(S._dwellAt) || Date.now())) / 6e4) + " \u062F \u0648\u0627\u0644\u0641\u064A\u062A\u0648 \u0631\u0641\u0636 \u0643\u0644 \u062F\u062E\u0648\u0644 \u2014 \u0627\u0646\u062A\u0642\u0627\u0644 \u0625\u0644\u0649 " + alt.disp + " (" + alt.score + ") \u0628\u062F\u0644 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631");
-        toast("\u{1F513} \u0627\u0646\u062A\u0642\u0627\u0644: " + alt.disp + " \u2014 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0628\u062F\u0644 \u0627\u0644\u0641\u064A\u062A\u0648");
-        saveCfg({
-          symbol: alt.symbol,
-          leverage: S.config.leverage,
-          levels: S.config.levels,
-          gridStepPct: S.config.gridStepPct,
-          huntPct: S.config.huntPct,
-          tpNet: S.config.tpNet,
-          tpUsd: S.config.tpUsd,
-          cycleBalance: S.config.cycleBalance,
-          directionMode: S.config.directionMode,
-          mode: S.config.mode,
-          sound: S.sound,
-          soundTone: S.soundTone
-        });
-        return;
-      }
-      if (!S._vetoEscAt || Date.now() - S._vetoEscAt > 6e5) {
-        S._vetoEscAt = Date.now();
-        pushLog("server", "\u{1F513} \u0627\u0644\u0641\u064A\u062A\u0648 \u064A\u062D\u062A\u062C\u0632 " + S.config.displaySymbol + " \u0648\u0644\u0627 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0645\u0624\u0647\u0644 \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0641\u0631\u0635\u0629");
-      }
-    } else if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
+    if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
       S._stickyLogAt = Date.now();
       pushLog("server", "\u{1F3AF} \u062B\u0628\u0627\u062A \u0627\u0644\u0635\u064A\u062F: " + S.config.displaySymbol + " \u0641\u064A\u0647 " + armedPendingCount() + " \u0645\u0646\u0627\u0637\u0642 \u0645\u0633\u0644\u062D\u0629 \u062A\u0646\u062A\u0638\u0631 \u0627\u0644\u0633\u0639\u0631 \u2014 \u0644\u0627 \u062A\u062F\u0648\u064A\u0631 \u0642\u0628\u0644 \u062A\u0646\u0641\u064A\u0630\u0647\u0627 \u0623\u0648 \u0627\u0646\u0642\u0636\u0627\u0621 \u0645\u0647\u0644\u0629 \u0627\u0644\u062B\u0628\u0627\u062A");
     }
