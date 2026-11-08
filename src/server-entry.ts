@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.20';
+const SRV_VER = 'AB-210-TRQ-1.1.21';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -447,6 +447,28 @@ srv.listen(PORT, '127.0.0.1', () => {
 if (SLOT === 0) console.log('[AB-210-TRQ] المنسّق جاهز — شغّل التطبيق في الجوال (يكتشف السيرفر تلقائيًا) — لا محرك داخل المنسّق');
 else {
   initEngine();
+  /* ─── v1.1.21 «نشاط» (قرار المالك 8 نوفمبر: «أريد صفقات أكثر»): هجرة
+     إعدادات مخزنة من الإصدارات القديمة إلى نمط النشاط الأعلى — مرة واحدة
+     فقط (علامة _actMode): انتظار المجموعات 10→5 دقائق (أسرع تسليح
+     للمجموعات الأعمق) ومهلة الثبات 30→15 دقيقة (الفيتو المستمر يُحرَّر
+     منه أصلاً بـveto-escape). لا تُمس أي قيمة ضبطها المالك لاحقاً يدوياً
+     إلى غير هذين القديمين ─── */
+  try {
+    if ((S as any)._actMode !== 'v1.1.21') {
+      const gw = Number(S.config && S.config.groupWaitMin) || 0;
+      const sm = Number(S.config && S.config.stickMin) || 0;
+      const mig: any = {};
+      if (gw >= 10) mig.groupWaitMin = 5;
+      if (sm >= 30) mig.stickMin = 15;
+      if (Object.keys(mig).length) {
+        saveCfg(mig);
+        pushLog('server', '⚡ نمط النشاط v1.1.21: انتظار المجموعات ' + (mig.groupWaitMin ? gw + '→5 د' : 'كما هو') +
+          ' · مهلة الثبات ' + (mig.stickMin ? sm + '→15 د' : 'كما هي') + ' — تسليح أسرع ودوران أسرع');
+      }
+      (S as any)._actMode = 'v1.1.21';
+      try { (localStorage as any).setItem('abking:actMode', 'v1.1.21'); } catch {}
+    }
+  } catch {}
   /* ─── v1.1.18 «استئناف تلقائي» (ملاحظة المالك 8 نوفمبر: «أسطول واحد فقط
      يعمل و4 متوقفة»): المحرك الذي أُقلع ولم يُوقف بمفتاح الإيقاف (HALT)
      ولا بمؤقت ما بعد الجني يُكمل عمله تلقائيًا بعد 60 ثانية — بلا انتظار
