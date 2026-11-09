@@ -85,6 +85,7 @@ var stopped = true;
 var attempts = 0;
 var connectSeq = 0;
 var offline = false;
+var _bulletCache = null;
 function forceReconnect(reason) {
   if (stopped) return;
   if (retryTimer) {
@@ -107,7 +108,8 @@ function forceReconnect(reason) {
   connect();
   if (onStatus) onStatus({ ...streamState });
 }
-async function getBullet() {
+async function getBullet(force) {
+  if (!force && _bulletCache && Date.now() - _bulletCache.at < 10 * 60 * 1e3) return _bulletCache;
   async function tryFetch(base) {
     const res2 = await fetch(base + "/api/v1/bullet-public", { method: "POST", cache: "no-store" });
     if (!res2.ok) throw new Error("bullet http " + res2.status);
@@ -125,12 +127,14 @@ async function getBullet() {
   const j = await res.json();
   if (j.code !== "200000") throw new Error(j.msg || "bullet " + j.code);
   const srv2 = (j.data.instanceServers || [])[0] || {};
-  return {
+  _bulletCache = {
     token: j.data.token,
     endpoint: srv2.endpoint,
     pingInterval: srv2.pingInterval || 18e3,
-    pingTimeout: srv2.pingTimeout || 1e4
+    pingTimeout: srv2.pingTimeout || 1e4,
+    at: Date.now()
   };
+  return _bulletCache;
 }
 function topics(sym) {
   return [
@@ -193,10 +197,20 @@ async function connect() {
   streamState.error = null;
   if (onStatus) onStatus({ ...streamState });
   try {
-    const b = await getBullet();
+    let b;
+    let usedCache = false;
+    try {
+      b = await getBullet();
+    } catch (e) {
+      if (_bulletCache && Date.now() - _bulletCache.at < 10 * 60 * 1e3) {
+        b = _bulletCache;
+        usedCache = true;
+      } else throw e;
+    }
     if (stopped || seq !== connectSeq) return;
     const socket = new WebSocket(b.endpoint + "?token=" + b.token + "&connectId=" + seq + "_" + Date.now().toString(36));
     ws = socket;
+    let cachedDied = true;
     socket.onopen = () => {
       if (seq !== connectSeq) {
         try {
@@ -227,6 +241,7 @@ async function connect() {
       if (onStatus) onStatus({ ...streamState });
     };
     socket.onmessage = (ev) => {
+      cachedDied = false;
       try {
         handleData(JSON.parse(ev.data));
       } catch {
@@ -237,6 +252,7 @@ async function connect() {
     };
     socket.onclose = () => {
       if (seq !== connectSeq) return;
+      if (usedCache && cachedDied) _bulletCache = null;
       clearTimers();
       streamState.connected = false;
       streamState.connecting = false;
@@ -1498,8 +1514,12 @@ function loadAll() {
         const __bound = Math.max(50, (S.config.cycleBalance || 0) * 3);
         let __n = 0;
         (S.journal || []).forEach((j) => {
-          if (j.status === "closed" && typeof j.pnl === "number" && Math.abs(j.pnl) > __bound) {
-            j.pnl = 0;
+          let bad = false;
+          if (j.status === "closed" && typeof j.pnl === "number" && Math.abs(j.pnl) > __bound) bad = true;
+          if (j.status === "closed" && typeof j.pnl === "number" && Math.abs(j.pnl) > Math.max(5, (S.config.cycleBalance || 0) * 0.1) && Number(j.entry) > 0 && Number(j.exit) > 0 && (j.side === "short" ? 1 : -1) * (j.entry - j.exit) > 0 !== j.pnl > 0) bad = true;
+          if (j.status === "open" && typeof j.partPnl === "number" && Math.abs(j.partPnl) > __bound) bad = true;
+          if (bad) {
+            j.status === "open" ? j.partPnl = 0 : j.pnl = 0;
             __n++;
           }
         });
@@ -2977,23 +2997,35 @@ async function alignHarvestWithExchange(sym, since) {
     });
   }, 9e3);
 }
-async function alignHarvestCore(sym, since) {
+async function alignHarvestCore(sym, since, _fetcher) {
   if (S.config.mode !== "live" || !S.keys) return;
   try {
-    const r = await kcPrivate("GET", "/api/v1/history-positions?symbol=" + encodeURIComponent(sym));
+    const _kc = _fetcher || kcPrivate;
+    const r = await _kc("GET", "/api/v1/history-positions?symbol=" + encodeURIComponent(sym));
     const arr = Array.isArray(r) ? r : r && r.data || [];
     if (!arr.length) return;
+    const __ab = Math.max(50, (S.config.cycleBalance || 0) * 3);
     const sorted = arr.slice().sort((a, b) => (Number(b.closeTime) || 0) - (Number(a.closeTime) || 0));
     const last = sorted[0];
     const ct = Number(last.closeTime) || 0;
-    if (ct && ct < since - 3e5) return;
-    const real = Number(last.withdrawPnl ?? last.realisedPnl ?? last.realizedPnl);
+    if (!(ct > 0) || ct < since - 3e5 || ct > Date.now() + 6e4) return;
+    if (String(last.symbol || "").replace("USDTM", "") !== String(sym).replace("USDTM", "")) return;
+    const real = Number(last.realisedPnl ?? last.realizedPnl);
     if (!isFinite(real)) return;
-    const rows = (S.journal || []).filter((j) => j.status === "closed" && (j.closedAt || 0) >= since - 18e4 && !j.exReal && (!j.symbol || String(j.symbol).replace("USDTM", "") === sym.replace("USDTM", "") || String(j.symbol) === sym));
+    if (Math.abs(real) > __ab) {
+      pushLog("warn", "\u{1F6E1}\uFE0F \u062F\u0631\u0639 \u0627\u0644\u062C\u0646\u064A \u0627\u0644\u0645\u0646\u0635\u064A: \u0631\u0641\u0636 \u062A\u0635\u062D\u064A\u062D\u0627\u064B \u0645\u0646 \u0635\u0641\u0642\u0629 \u0645\u0646\u0635\u064A\u0629 \u0628\u0642\u064A\u0645\u0629 \u0634\u0627\u0630\u0629 " + real.toFixed(2) + "$ (\u062E\u0627\u0631\u062C \u0627\u0644\u062D\u062F \u0627\u0644\u0645\u0627\u062F\u064A " + __ab.toFixed(0) + "$) \u2014 \u0644\u0645 \u062A\u064F\u0644\u0645\u0633 \u0627\u0644\u062F\u0641\u0627\u062A\u0631");
+      return;
+    }
+    const rows = (S.journal || []).filter((j) => j.status === "closed" && (j.closedAt || 0) >= since - 18e4 && !j.exReal && j.symbol && String(j.symbol).replace("USDTM", "") === String(sym).replace("USDTM", ""));
     if (!rows.length) return;
+    if (Math.abs((rows[0].closedAt || 0) - ct) > 18e4) return;
     const est = rows.reduce((a, j) => a + (Number(j.pnl) || 0), 0);
     const diff = real - est;
     if (Math.abs(diff) < 5e-3) return;
+    if (Math.abs(diff) > Math.max(5, (S.config.cycleBalance || 0) * 0.1)) {
+      pushLog("warn", "\u{1F6E1}\uFE0F \u062F\u0631\u0639 \u0627\u0644\u062C\u0646\u064A \u0627\u0644\u0645\u0646\u0635\u064A: \u0631\u0641\u0636 \u0641\u0631\u0642 \u062A\u0635\u062D\u064A\u062D \u0634\u0627\u0630 " + diff.toFixed(2) + "$ (\u0627\u0644\u0645\u0646\u0635\u0629 " + real.toFixed(2) + "$ \u0645\u0642\u0627\u0628\u0644 \u062A\u0642\u062F\u064A\u0631 " + est.toFixed(2) + "$) \u2014 \u062E\u0627\u0631\u062C \u062D\u062F \u0627\u0644\u062A\u0635\u062D\u064A\u062D");
+      return;
+    }
     rows[0].pnl = Math.round(((Number(rows[0].pnl) || 0) + diff) * 100) / 100;
     rows[0].exReal = Math.round(real * 100) / 100;
     S.realizedPnl = Math.round(((S.realizedPnl || 0) + diff) * 100) / 100;
@@ -3229,7 +3261,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.31 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.32 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4379,8 +4411,9 @@ function noteClose(qty, exit, fee, source, pnl, lotId) {
     const share = row.qty > 0 ? row.fees * (qty / row.qty) : row.fees;
     let net = lotNet(row.side, row.entry, exit, qty, share + fee);
     const __bound = Math.max(50, (S.config.cycleBalance || 0) * 3);
-    if (Number.isFinite(net) && Math.abs(net) > __bound) {
-      pushLog("warn", "\u{1F6E1}\uFE0F \u062F\u0631\u0639 \u0627\u0644\u0625\u0642\u0641\u0627\u0644: \u0631\u0641\u0636 \u0646\u062A\u064A\u062C\u0629 \u0634\u0627\u0630\u0629 " + net.toFixed(2) + "$ (\u062E\u0627\u0631\u062C \u0627\u0644\u062D\u062F \u0627\u0644\u0645\u0627\u062F\u064A " + __bound.toFixed(0) + "$) \u2014 \u0633\u064A\u0627\u0642 \u0645\u062E\u062A\u0644\u0637 \u0645\u0646 \u0627\u0646\u062A\u0642\u0627\u0644 \u0639\u0645\u0644\u0629 \u2014 \u0627\u0644\u0635\u0641 \u064A\u064F\u0642\u0641\u0644 \u0628\u0635\u0641\u0631");
+    const __prCk = !(exit > 0) || row.entry > 0 && Math.abs(exit - row.entry) / row.entry > 0.5;
+    if (Number.isFinite(net) && (__prCk || Math.abs(net) > __bound)) {
+      pushLog("warn", "\u{1F6E1}\uFE0F \u062F\u0631\u0639 \u0627\u0644\u0625\u0642\u0641\u0627\u0644: \u0631\u0641\u0636 \u0646\u062A\u064A\u062C\u0629 \u0634\u0627\u0630\u0629 " + net.toFixed(2) + "$ (\u062E\u0627\u0631\u062C \u0627\u0644\u062D\u062F \u0627\u0644\u0645\u0627\u062F\u064A " + __bound.toFixed(0) + "$ \u0623\u0648 \u0633\u0639\u0631 \u062E\u0631\u0648\u062C \u0645\u062E\u062A\u0644\u0637) \u2014 \u0627\u0644\u0635\u0641 \u064A\u064F\u0642\u0641\u0644 \u0628\u0635\u0641\u0631");
       net = 0;
     }
     row.status = "closed";
@@ -4452,6 +4485,22 @@ function notePartialClose(qty, exit, fee, lotId) {
   if (!row || !(qty > 0)) return 0;
   const share = row.qty > 0 ? row.fees * Math.min(1, qty / row.qty) : 0;
   const net = lotNet(row.side, row.entry, exit, qty, share + fee);
+  {
+    const __pb = Math.max(50, (S.config.cycleBalance || 0) * 3);
+    const __prSan = !(exit > 0) || row.entry > 0 && Math.abs(exit - row.entry) / row.entry > 0.5;
+    if (!Number.isFinite(net) || __prSan || Math.abs(net) > __pb) {
+      row.qty = Math.max(0, row.qty - qty);
+      row.fees = Math.max(0, row.fees - share);
+      if (row.qty <= 1e-9) {
+        row.status = "closed";
+        row.exit = exit > 0 ? exit : row.entry;
+        row.closedAt = Date.now();
+        row.pnl = Math.round((row.partPnl || 0) * 1e4) / 1e4;
+      }
+      pushLog("warn", "\u{1F6E1}\uFE0F \u062F\u0631\u0639 \u0627\u0644\u062C\u0646\u064A \u0627\u0644\u062C\u0632\u0626\u064A: \u0631\u0641\u0636 \u0646\u062A\u064A\u062C\u0629 \u0634\u0627\u0630\u0629 " + (Number.isFinite(net) ? net.toFixed(2) + "$" : "\u063A\u064A\u0631 \u0639\u062F\u062F\u064A\u0629") + " (\u062E\u0627\u0631\u062C \u0627\u0644\u062D\u062F \u0627\u0644\u0645\u0627\u062F\u064A " + __pb.toFixed(0) + "$ \u0623\u0648 \u0633\u0639\u0631 \u062E\u0631\u0648\u062C \u0645\u062E\u062A\u0644\u0637) \u2014 \u0644\u0645 \u062A\u064F\u0644\u0645\u0633 \u0642\u064A\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629 \u0648\u0644\u0627 \u0631\u0635\u064A\u062F \u0627\u0644\u062F\u0648\u0631\u0629");
+      return 0;
+    }
+  }
   row.qty = Math.max(0, row.qty - qty);
   row.fees = Math.max(0, row.fees - share);
   row.partPnl = Math.round(((row.partPnl || 0) + net) * 1e4) / 1e4;
@@ -7417,7 +7466,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.31";
+var SRV_VER = "AB-210-TRQ-1.1.32";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
