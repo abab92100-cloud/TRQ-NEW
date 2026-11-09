@@ -27,6 +27,7 @@ let ws:any=null, pingTimer:any=null, watchTimer:any=null, retryTimer:any=null;
 let symbol:any=null, onMessage:any=null, onStatus:any=null;
 let stopped=true, attempts=0, connectSeq=0;
 let offline=false;
+let _bulletCache:any=null; // v1.1.32 «ميزان»: رمز قناة صالح يُعاد استخدامه عند الانقطاع
 
 function forceReconnect(reason:any){
   if(stopped) return;
@@ -41,7 +42,12 @@ function forceReconnect(reason:any){
   if(onStatus) onStatus({...streamState});
 }
 
-async function getBullet(){
+async function getBullet(force?:boolean){
+  // v1.1.32 «ميزان» — درع تقطع الاتصال: رمز القناة الصالح لا يُطلب من جديد عند كل
+  // إعادة اتصال. السيرفر والتطبيق على الجوال نفسه (IP واحد) يستهلكان حصة الطلبات
+  // معاً، ورفض المنصة المؤقت (429) لطلب الرمز كان يُبقي القناة «مقطوعة» دقائق بلا
+  // داعٍ. الرمز المُخزَّن (أقل من 10 دقائق) يُعاد فوراً — إعادة اتصال لحظية بلا طلب.
+  if(!force&&_bulletCache&&Date.now()-_bulletCache.at<10*60*1000) return _bulletCache;
   async function tryFetch(base){
     const res=await fetch(base+'/api/v1/bullet-public',{method:'POST',cache:'no-store'});
     if(!res.ok) throw new Error('bullet http '+res.status);
@@ -54,8 +60,9 @@ async function getBullet(){
   const j=await res.json();
   if(j.code!=='200000') throw new Error(j.msg||('bullet '+j.code));
   const srv=(j.data.instanceServers||[])[0]||{};
-  return { token:j.data.token, endpoint:srv.endpoint,
-    pingInterval:srv.pingInterval||18000, pingTimeout:srv.pingTimeout||10000 };
+  _bulletCache={ token:j.data.token, endpoint:srv.endpoint,
+    pingInterval:srv.pingInterval||18000, pingTimeout:srv.pingTimeout||10000, at:Date.now() };
+  return _bulletCache;
 }
 
 function topics(sym){
@@ -108,10 +115,18 @@ async function connect(){
   streamState.connecting=true; streamState.error=null;
   if(onStatus) onStatus({...streamState});
   try{
-    const b=await getBullet();
+    let b:any;
+    let usedCache=false;
+    try{ b=await getBullet(); }
+    catch(e){
+      // فشل طلب رمز جديد (429/شبكة عابرة) — الرمز المخزَّن الصالح يكفي: اتصال فوري
+      if(_bulletCache&&Date.now()-_bulletCache.at<10*60*1000){ b=_bulletCache; usedCache=true; }
+      else throw e;
+    }
     if(stopped||seq!==connectSeq) return;
     const socket=new WebSocket(b.endpoint+'?token='+b.token+'&connectId='+seq+'_'+Date.now().toString(36));
     ws=socket;
+    let cachedDied=true; // true حتى تصل أول رسالة — يميّه الرمز المخزَّن المنتهي
     socket.onopen=()=>{
       if(seq!==connectSeq){ try{socket.close();}catch{} return; }
       attempts=0;
@@ -128,10 +143,13 @@ async function connect(){
       streamState.lastMsgAt=Date.now();
       if(onStatus) onStatus({...streamState});
     };
-    socket.onmessage=(ev)=>{ try{ handleData(JSON.parse(ev.data)); }catch{} };
+    socket.onmessage=(ev)=>{ cachedDied=false; try{ handleData(JSON.parse(ev.data)); }catch{} };
     socket.onerror=()=>{ streamState.error='خطأ في القناة'; };
     socket.onclose=()=>{
       if(seq!==connectSeq) return;
+      // القناة التي فُتحت برمز مخزَّن ولم يصلها أي رسالة = الرمز انتهت صلاحيته —
+      // يُمحى من المخزن كي تُجري المحاولة التالية بطلب رمز جديد فعلي
+      if(usedCache&&cachedDied) _bulletCache=null;
       clearTimers();
       streamState.connected=false; streamState.connecting=false;
       if(onStatus) onStatus({...streamState});
