@@ -2732,6 +2732,8 @@ async function maybeSwitchSymbol() {
       return;
     }
     if (cur && (cur.score || 0) >= (best.score || 0)) return;
+    const __curTakenSw = (S._fleetTaken || []).map(String).includes(String(S.config.symbol));
+    if (afterHarvest && cur && Number(cur.score || 0) >= 55 && !__curTakenSw) return;
     if (!afterHarvest && cur && best.score - cur.score < 12) return;
     _lastSwitchAt = Date.now();
     const curDisp = cur ? cur.disp : S.config.displaySymbol, curSc = cur ? cur.score : 0;
@@ -3227,7 +3229,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.30 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.31 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -7415,7 +7417,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.30";
+var SRV_VER = "AB-210-TRQ-1.1.31";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
