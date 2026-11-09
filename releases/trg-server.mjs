@@ -2604,15 +2604,37 @@ async function maybeSwitchSymbol() {
   }
   if (Date.now() - _lastSwitchAt < 2e4) return;
   if (studying()) return;
+  if (stickyArmed()) {
+    if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
+      S._stickyLogAt = Date.now();
+      pushLog("server", "\u{1F3AF} \u062B\u0628\u0627\u062A \u0627\u0644\u0635\u064A\u062F: " + S.config.displaySymbol + " \u0641\u064A\u0647 " + armedPendingCount() + " \u0645\u0646\u0627\u0637\u0642 \u0645\u0633\u0644\u062D\u0629 \u062A\u0646\u062A\u0638\u0631 \u0627\u0644\u0633\u0639\u0631 \u2014 \u0644\u0627 \u062A\u062F\u0648\u064A\u0631 \u0642\u0628\u0644 \u062A\u0646\u0641\u064A\u0630\u0647\u0627 \u0623\u0648 \u0627\u0646\u0642\u0636\u0627\u0621 \u0645\u0647\u0644\u0629 \u0627\u0644\u062B\u0628\u0627\u062A");
+    }
+    return;
+  }
   if (vetoStuck()) {
     const tkEsc0 = (S._fleetTaken || []).map((x) => String(x));
     const altC = (S.radar && S.radar.list || []).filter((l) => l.symbol !== S.config.symbol && !tkEsc0.includes(String(l.symbol)) && !(Number(l.spread || 0) > 0.2) && (l.score || 0) >= 55);
+    const __escBanMs = 20 * 60 * 1e3;
+    const __notFled = (sym) => {
+      const t = Number((S.recentCoins || {})[sym] || 0);
+      return !(t > 0) || Date.now() - t > __escBanMs;
+    };
     let alt0 = null;
     for (let ai = 0; ai < altC.length && ai < 5; ai++) {
+      if (!__notFled(String(altC[ai].symbol))) continue;
       const bc = await bookClean(String(altC[ai].symbol));
       if (bc.ok) {
         alt0 = altC[ai];
         break;
+      }
+    }
+    if (!alt0) {
+      for (let ai = 0; ai < altC.length && ai < 5; ai++) {
+        const bc = await bookClean(String(altC[ai].symbol));
+        if (bc.ok) {
+          alt0 = altC[ai];
+          break;
+        }
       }
     }
     if (alt0) {
@@ -2644,13 +2666,6 @@ async function maybeSwitchSymbol() {
       S._vetoEscAt = Date.now();
       pushLog("server", "\u{1F513} \u0627\u0644\u0641\u064A\u062A\u0648 \u064A\u062D\u062A\u062C\u0632 " + S.config.displaySymbol + " \u0648\u0644\u0627 \u0628\u062F\u064A\u0644 \u062D\u0631 \u0645\u0624\u0647\u0644 \u2014 \u0627\u0646\u062A\u0638\u0627\u0631 \u0641\u0631\u0635\u0629");
     }
-  }
-  if (stickyArmed()) {
-    if (!S._stickyLogAt || Date.now() - S._stickyLogAt > 6e5) {
-      S._stickyLogAt = Date.now();
-      pushLog("server", "\u{1F3AF} \u062B\u0628\u0627\u062A \u0627\u0644\u0635\u064A\u062F: " + S.config.displaySymbol + " \u0641\u064A\u0647 " + armedPendingCount() + " \u0645\u0646\u0627\u0637\u0642 \u0645\u0633\u0644\u062D\u0629 \u062A\u0646\u062A\u0638\u0631 \u0627\u0644\u0633\u0639\u0631 \u2014 \u0644\u0627 \u062A\u062F\u0648\u064A\u0631 \u0642\u0628\u0644 \u062A\u0646\u0641\u064A\u0630\u0647\u0627 \u0623\u0648 \u0627\u0646\u0642\u0636\u0627\u0621 \u0645\u0647\u0644\u0629 \u0627\u0644\u062B\u0628\u0627\u062A");
-    }
-    return;
   }
   try {
     const r = await scanRadar();
@@ -3195,7 +3210,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.28 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.29 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -7382,7 +7397,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.28";
+var SRV_VER = "AB-210-TRQ-1.1.29";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
