@@ -1998,9 +1998,26 @@ function openNextReady() {
     S._nextSymbol = null;
     return false;
   }
+  const __rl = S.radar && Array.isArray(S.radar.list) ? S.radar.list.find((x) => x.symbol === S.config.symbol) : null;
+  const __takenNow = (S._fleetTaken || []).map(String).includes(String(S.config.symbol));
+  if (__rl && Number(__rl.score || 0) >= 55 && !__takenNow) {
+    S._nextReady = false;
+    return false;
+  }
+  const __fleeT = Number((S.recentCoins || {})[sym] || 0);
+  if (__fleeT > 0 && Date.now() - __fleeT < 20 * 60 * 1e3) {
+    S._nextReady = false;
+    return false;
+  }
+  const __oldSym = S.config.symbol;
   S._nextReady = false;
   S._nextSymbol = null;
   S._reselectDone = true;
+  try {
+    S.recentCoins = S.recentCoins || {};
+    S.recentCoins[__oldSym] = Date.now();
+  } catch {
+  }
   pushLog("server", "\u26A1 \u0641\u062A\u062D \u0641\u0648\u0631\u064A \u0628\u0639\u062F \u0627\u0644\u062C\u0646\u064A: \u0627\u0644\u0639\u0645\u0644\u0629 \u0627\u0644\u0645\u062F\u0631\u0648\u0633\u0629 \u062E\u0644\u0641\u064A\u064B\u0627 " + sym.replace(/USDTM$/i, "") + " \u062A\u062F\u062E\u0644 \u0627\u0644\u0622\u0646");
   saveCfg({
     symbol: sym,
