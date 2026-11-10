@@ -1576,7 +1576,7 @@ function logSwallow(where, err) {
   try {
     const msg = String(err && err.message || err || "unknown");
     if (/not found|404/i.test(msg)) return;
-    if (/failed to fetch|networkerror|network error|load failed/i.test(msg)) return;
+    if (/failed to fetch|fetch failed|networkerror|network error|load failed|econnreset|etimedout|socket hang up|eai_again/i.test(msg)) return;
     if (/aborted?|abort/i.test(msg)) return;
     if (/timeout|timed? ?out/i.test(msg)) return;
     const key = where + "|" + msg;
@@ -3261,7 +3261,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.32 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.33 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4411,8 +4411,9 @@ function noteClose(qty, exit, fee, source, pnl, lotId) {
     const share = row.qty > 0 ? row.fees * (qty / row.qty) : row.fees;
     let net = lotNet(row.side, row.entry, exit, qty, share + fee);
     const __bound = Math.max(50, (S.config.cycleBalance || 0) * 3);
+    const __phys = 2 * ((row.qty || qty || 0) * (row.mult || (S.multiplier || 1)) * (row.entry || exit || 0)) + 10;
     const __prCk = !(exit > 0) || row.entry > 0 && Math.abs(exit - row.entry) / row.entry > 0.5;
-    if (Number.isFinite(net) && (__prCk || Math.abs(net) > __bound)) {
+    if (Number.isFinite(net) && (__prCk || Math.abs(net) > __bound || Math.abs(net) > __phys)) {
       pushLog("warn", "\u{1F6E1}\uFE0F \u062F\u0631\u0639 \u0627\u0644\u0625\u0642\u0641\u0627\u0644: \u0631\u0641\u0636 \u0646\u062A\u064A\u062C\u0629 \u0634\u0627\u0630\u0629 " + net.toFixed(2) + "$ (\u062E\u0627\u0631\u062C \u0627\u0644\u062D\u062F \u0627\u0644\u0645\u0627\u062F\u064A " + __bound.toFixed(0) + "$ \u0623\u0648 \u0633\u0639\u0631 \u062E\u0631\u0648\u062C \u0645\u062E\u062A\u0644\u0637) \u2014 \u0627\u0644\u0635\u0641 \u064A\u064F\u0642\u0641\u0644 \u0628\u0635\u0641\u0631");
       net = 0;
     }
@@ -4487,8 +4488,9 @@ function notePartialClose(qty, exit, fee, lotId) {
   const net = lotNet(row.side, row.entry, exit, qty, share + fee);
   {
     const __pb = Math.max(50, (S.config.cycleBalance || 0) * 3);
+    const __physP = 2 * ((row.qty || qty || 0) * (row.mult || (S.multiplier || 1)) * (row.entry || exit || 0)) + 10;
     const __prSan = !(exit > 0) || row.entry > 0 && Math.abs(exit - row.entry) / row.entry > 0.5;
-    if (!Number.isFinite(net) || __prSan || Math.abs(net) > __pb) {
+    if (!Number.isFinite(net) || __prSan || Math.abs(net) > __pb || Math.abs(net) > __physP) {
       row.qty = Math.max(0, row.qty - qty);
       row.fees = Math.max(0, row.fees - share);
       if (row.qty <= 1e-9) {
@@ -6021,11 +6023,28 @@ async function flattenAt(p, source) {
   }
   for (const row of S.journal) {
     if (row.status === "open") {
-      row.status = "closed";
-      row.exit = p;
-      row.closedAt = Date.now();
-      if (source === "\u0625\u064A\u0642\u0627\u0641") row.source = "\u0625\u064A\u0642\u0627\u0641";
-      if (!row.pnl) row.pnl = lotNet(row.side, row.entry, p, row.qty, row.fees);
+      if (String(row.symbol || S.config.displaySymbol) === String(S.config.displaySymbol)) {
+        row.status = "closed";
+        row.exit = p;
+        row.closedAt = Date.now();
+        if (source === "\u0625\u064A\u0642\u0627\u0641") row.source = "\u0625\u064A\u0642\u0627\u0641";
+        if (!row.pnl) {
+          let __g = lotNet(row.side, row.entry, p, row.qty, row.fees);
+          const __physF = 2 * ((row.qty || 0) * (row.mult || (S.multiplier || 1)) * (row.entry || 0)) + 10;
+          if (!Number.isFinite(__g) || !(p > 0) || row.entry > 0 && Math.abs(p - row.entry) / row.entry > 0.5 || Math.abs(__g) > __physF) {
+            pushLog("warn", "\u{1F6E1}\uFE0F \u0645\u064A\u0632\u0627\u0646 \u0627\u0644\u0625\u0642\u0641\u0627\u0644: \u0631\u0641\u0636 \u0646\u062A\u064A\u062C\u0629 \u0634\u0627\u0630\u0629 " + (Number.isFinite(__g) ? __g.toFixed(2) : "?") + "$ \u0639\u0644\u0649 \u0635\u0641 " + row.symbol + " (\u062E\u0627\u0631\u062C \u0627\u0644\u062D\u062F \u0627\u0644\u0641\u064A\u0632\u064A\u0627\u0626\u064A " + __physF.toFixed(0) + "$) \u2014 \u0642\u064F\u0641\u0644 \u0628\u0635\u0641\u0631");
+            __g = 0;
+          }
+          row.pnl = Math.round((__g + (row.partPnl || 0)) * 1e4) / 1e4;
+        }
+      } else {
+        row.status = "closed";
+        row.exit = row.exit || row.entry;
+        row.closedAt = Date.now();
+        row.pnl = Math.round((row.partPnl || 0) * 1e4) / 1e4;
+        if (row.source !== "\u0625\u064A\u0642\u0627\u0641") row.source = "\u0623\u064F\u063A\u0644\u0642 \u0628\u0644\u0627 \u0633\u064A\u0627\u0642 (\u0639\u0645\u0644\u0629 \u0642\u062F\u064A\u0645\u0629)";
+        pushLog("warn", "\u{1F9FE} \u0633\u062C\u0644 \u0627\u0644\u0635\u0641\u0642\u0627\u062A: \u0635\u0641 " + row.symbol + " \u0642\u062F\u064A\u0645 \u0623\u064F\u063A\u0644\u0642 \u0628\u0635\u0641\u0631 \u2014 \u0633\u064A\u0627\u0642 " + S.config.displaySymbol + " \u0644\u0627 \u064A\u064F\u0643\u062A\u0628 \u0641\u0648\u0642 \u0635\u0641 \u0639\u0645\u0644\u0629 \u0623\u062E\u0631\u0649 \u0623\u0628\u062F\u0627\u064B");
+      }
     }
   }
   S.position = null;
@@ -6281,7 +6300,7 @@ async function liveSync() {
         S.position.side = pos.side;
         if (pos.liquidation) S.position.liquidation = pos.liquidation;
         if (pos.entry > 0 && Math.abs(pos.entry - prevEntry) / Math.max(1e-9, prevEntry) > 1e-4) {
-          const openRow = S.journal.find((j) => j.status === "open");
+          const openRow = S.journal.find((j) => j.status === "open" && String(j.symbol) === String(S.config.displaySymbol));
           if (openRow) {
             const oldFees = openRow.fees || 0;
             openRow.entry = pos.entry;
@@ -6294,7 +6313,7 @@ async function liveSync() {
         }
       }
     } else if (S.position && Date.now() > S.ignoreExchangeUntil && S._flatConfirmed) {
-      const __row = S.journal.find((j) => j.status === "open");
+      const __row = S.journal.find((j) => j.status === "open" && String(j.symbol) === String(S.config.displaySymbol)) || S.journal.find((j) => j.status === "open");
       const __ex = Number(pos && pos.exitPrice) || S.markPrice || S.lastPrice || (__row ? __row.entry : 0);
       if (__row && __ex > 0) {
         try {
@@ -7466,7 +7485,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.32";
+var SRV_VER = "AB-210-TRQ-1.1.33";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
@@ -7505,6 +7524,25 @@ async function jfetch(url, ms = 2500, payload) {
   }
 }
 var PORT = BASE_PORT + SLOT;
+process.on("uncaughtException", (e) => {
+  try {
+    console.error("[\u0635\u062D\u064A\u062D-\u0646\u062C\u0627\u0629] uncaughtException:", e && (e.stack || e));
+  } catch {
+  }
+});
+process.on("unhandledRejection", (e) => {
+  try {
+    console.error("[\u0635\u062D\u064A\u062D-\u0646\u062C\u0627\u0629] unhandledRejection:", e && (e.stack || e));
+  } catch {
+  }
+});
+setInterval(() => {
+  try {
+    spawn("/data/data/com.termux/files/usr/bin/termux-wake-lock", [], { stdio: "ignore" }).on("error", () => {
+    });
+  } catch {
+  }
+}, 5 * 60 * 1e3).unref?.();
 if (SLOT > 0) {
   pushLog("server", "\u2705 " + SRV_VER + " \u2014 \u0645\u062D\u0631\u0643 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0631\u0642\u0645 " + SLOT + "/" + FLEET_N + " \u2014 \u062D\u0635\u062A\u0647 \u0631\u0623\u0633 \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \xF7" + FLEET_N + " \u062A\u062F\u0627\u0648\u0644\u0627\u062A \u2014 \u064A\u0628\u062F\u0623 \u0627\u0644\u0639\u0645\u0644");
   let bootPickDone = false;
