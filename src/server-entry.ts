@@ -18,7 +18,7 @@ import {
   fetchKlinesCached, sharedRadarApply,
 } from './engine';
 
-const SRV_VER = 'AB-210-TRQ-1.1.32';
+const SRV_VER = 'AB-210-TRQ-1.1.33';
 const FLEET_N = 5;
 const BASE_PORT = 9010;
 const SLOT = parseInt(String((process.env as any).ABKING_SLOT || ''), 10) || 0;
@@ -58,6 +58,19 @@ async function jfetch(url, ms = 2500, payload?) {
 }
 
 const PORT = BASE_PORT + SLOT;
+
+/* ─── v1.1.33 «صحيح» (شكوى المالك 10 نوفمبر: «البارحة أثناء النوم انقطع
+   الاتصال تماما وانطفأ تطبيق السيرفر — صفقات معلقة»): أي استثناء غير
+   ملتقط في Node يقتل المنسّق وكل المحرك معه فيصحو المستخدم على أسطول
+   ميت وصفقات معلقة. الآن: الاستثناء يُسجَّل في السجل والعمل يستمر —
+   موت السيرفر ليلاً أغلى بكثير من أي خطأ مسجّل. كذلك: إعادة اكتساب
+   قفل اليقظة من داخل Node نفسه كل 5 دقائق — الحارس bash قد يموت مع
+   جلسة Termux، وهذا المسار يبقى ما دام السيرفر حياً ─── */
+process.on('uncaughtException', (e: any) => { try { console.error('[صحيح-نجاة] uncaughtException:', e && (e.stack || e)); } catch {} });
+process.on('unhandledRejection', (e: any) => { try { console.error('[صحيح-نجاة] unhandledRejection:', e && (e.stack || e)); } catch {} });
+setInterval(() => {
+  try { spawn('/data/data/com.termux/files/usr/bin/termux-wake-lock', [], { stdio: 'ignore' }).on('error', () => {}); } catch {}
+}, 5 * 60 * 1000).unref?.();
 
 /* وضع المحرك (قطاعي من الأسطول) */
 if (SLOT > 0) {
