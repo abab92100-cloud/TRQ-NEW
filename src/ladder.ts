@@ -93,7 +93,7 @@ function zoneMaxPct(){ return Math.min(3,Math.max(0.2,Number(S&&S.config&&S.conf
 let _zoneCache: any = null; // {sym, short, at, zones} — إعادة دراسة المناطق كل ساعة
 let _zoneFails = 0;        // فشل جلب متتالٍ — يمدد فترة إعادة المحاولة تصاعدياً
 
-async function bounceZones(short: boolean): Promise<any[]> {
+export async function bounceZones(short: boolean): Promise<any[]> {
   const sym = S.config.symbol;
   // ─── v1.1.28 «رشاش» (أمر المالك 9 نوفمبر: «لدينا معلومات من المنصه مفيده
   // لو تعاملنا معاها بشكل ذكي على فريم خمس دقائق لكل صفقه»): دراسة المناطق
