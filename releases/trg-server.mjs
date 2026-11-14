@@ -3261,7 +3261,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.33 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.34 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fastexit fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4640,68 +4640,96 @@ function syncPositionTp() {
   if (S.status !== "running" || !S.position) return;
   const pos = S.position, mult = S.multiplier || 1;
   if (!(pos.size > 0)) return;
-  const entryFees = S.journal.filter((j) => j.status === "open").reduce((a, j) => a + (j.fees || 0), 0) || pos.size * mult * pos.entry * (S.makerFee || 2e-4);
+  const openRows = S.journal.filter((j) => j.status === "open");
+  const entryFees = openRows.reduce((a, j) => a + (j.fees || 0), 0) || pos.size * mult * pos.entry * (S.makerFee || 2e-4);
   const exitFee = pos.size * mult * pos.entry * (S.takerFee || 6e-4);
   const notional = Math.max(1e-9, pos.size * mult * pos.entry);
   const base = tpBase();
-  const floatNet = (pos.unrealized || 0) - S.journal.filter((j) => j.status === "open").reduce((a, j) => a + (j.fees || 0), 0) - pos.size * mult * (pos.entry || 0) * (S.takerFee || 6e-4);
+  const floatNet = (pos.unrealized || 0) - openRows.reduce((a, j) => a + (j.fees || 0), 0) - pos.size * mult * (pos.entry || 0) * (S.takerFee || 6e-4);
   S._trailFloor = Math.max(S._trailFloor || 0, trailTarget(base, floatNet));
   const need = Math.max(S._trailFloor, tpBase()) - (S._tpBanked || 0);
-  if (need < 0) {
-  }
   const needPos = Math.max(0, need);
-  const cov = (entryFees + exitFee + needPos) / notional;
-  let want = roundTick(pos.side === "long" ? pos.entry * (1 + cov) : pos.entry * (1 - cov), S.tickSize);
-  if (!(want > 0)) return;
+  const feesCov = (entryFees + exitFee) / notional;
+  const ageMin = (Date.now() - (Number(pos.openedAt) || Date.now())) / 6e4;
+  const guaranteed = ageMin >= 15;
+  const eps = clamp(0.05 / Math.max(1, notional), 15e-5, 4e-4);
+  const banked = S._tpBanked || 0;
+  const dir2 = pos.side === "long" ? 1 : -1;
+  const priceAt = (cov) => roundTick(pos.entry * (1 + dir2 * cov), S.tickSize);
+  const lanes = banked > 0 || pos.size < 3 ? [{ lane: "main", frac: 1, cov: guaranteed ? feesCov + eps : feesCov + needPos / notional }] : [
+    { lane: "arrow", frac: 0.4, cov: feesCov + eps },
+    { lane: "mid", frac: 0.35, cov: guaranteed ? feesCov + eps : feesCov + 0.45 * needPos / notional },
+    { lane: "main", frac: 0.25, cov: guaranteed ? feesCov + eps : feesCov + needPos / notional }
+  ];
+  let wantMain = priceAt(lanes[lanes.length - 1].cov);
+  if (!(wantMain > 0)) return;
   const nowT = Date.now();
-  if (!S._zoneAt || nowT - S._zoneAt > 4e3) {
+  if (!guaranteed && (!S._zoneAt || nowT - S._zoneAt > 4e3)) {
     S._zoneAt = nowT;
     const z = studiedTpZone(pos, S.lastPrice || 0);
     if (z && z.zone > 0) {
-      const cap = want + (pos.side === "long" ? 1 : -1) * Math.abs(want - pos.entry) * 0.25;
+      const cap = wantMain + dir2 * Math.abs(wantMain - pos.entry) * 0.25;
       S._zone = pos.side === "long" ? Math.min(z.zone, cap) : Math.max(z.zone, cap);
     } else S._zone = 0;
   }
-  if (S._zone > 0) {
+  if (S._zone > 0 && !guaranteed) {
     const z = roundTick(S._zone, S.tickSize);
-    if (pos.side === "long" ? z > want : z < want) {
-      if (Math.abs(z - want) > Math.max(S.tickSize * 2, want * 4e-4)) want = z;
+    if (pos.side === "long" ? z > wantMain : z < wantMain) {
+      if (Math.abs(z - wantMain) > Math.max(S.tickSize * 2, wantMain * 4e-4)) wantMain = z;
     }
   }
-  const tickTol = S.tickSize > 0 ? S.tickSize * 0.5 : Math.abs(want) * 1e-9;
+  lanes[lanes.length - 1].px = wantMain;
+  for (let li = 0; li < lanes.length - 1; li++) lanes[li].px = priceAt(lanes[li].cov);
   const liveTp = S.grid.filter((g) => g.reduceOnly && (g.status === "armed" || g.status === "open"));
   const remQty = (g) => Math.max(0, g.qty - (g.exFilled || 0));
-  const match = liveTp.find((g) => {
-    if ((S._tpBanked || 0) > 0 && Math.abs(remQty(g) - pos.size) < 1e-6) return true;
-    return Math.abs(g.price - want) <= tickTol && Math.abs(remQty(g) - pos.size) < 1e-6;
-  });
-  if (match) {
-    for (const g of liveTp) {
-      if (g !== match) {
-        g.status = "cancelled";
-        g.exchangeOrderId = null;
+  if (banked > 0) {
+    const keep = liveTp.find((g) => Math.abs(remQty(g) - pos.size) < 1e-6);
+    if (keep) {
+      for (const g of liveTp) {
+        if (g !== keep) {
+          g.status = "cancelled";
+          g.exchangeOrderId = null;
+        }
       }
+      return;
     }
-    return;
   }
+  const laneOf = (g) => g.lane || "main";
+  const wantLanes = lanes.map((l) => ({ lane: l.lane, px: l.px, qty: Math.max(1, Math.round(l.frac * pos.size)) }));
+  const qSum = wantLanes.reduce((a, l) => a + l.qty, 0);
+  const wLast = wantLanes[wantLanes.length - 1];
+  wLast.qty = Math.max(1, wLast.qty + (pos.size - qSum));
+  const kept = [];
   for (const g of liveTp) {
+    const wl = wantLanes.find((l) => l.lane === laneOf(g));
+    const pxOk = !!wl && Math.abs(g.price - wl.px) <= Math.max(S.tickSize * 0.5, wl.px * 5e-4);
+    const qtyOk = !!wl && Math.abs(remQty(g) - wl.qty) <= Math.max(1, wl.qty * 0.2);
+    if (pxOk && qtyOk) {
+      kept.push(g);
+      continue;
+    }
     g.status = "cancelled";
     g.exchangeOrderId = null;
   }
-  S.grid.push({
-    id: uid("tp"),
-    clientOid: uid("oid"),
-    side: pos.side === "short" ? "buy" : "sell",
-    price: want,
-    qty: pos.size,
-    status: "armed",
-    reduceOnly: true,
-    exchangeOrderId: null,
-    filledAt: null,
-    origin: "grid",
-    createdAt: Date.now(),
-    lotId: S.journal.find((j) => j.status === "open")?.id
-  });
+  for (const wl of wantLanes) {
+    if (kept.some((g) => laneOf(g) === wl.lane)) continue;
+    if (liveTp.some((g) => laneOf(g) === wl.lane && g.status !== "cancelled")) continue;
+    S.grid.push({
+      id: uid("tp"),
+      clientOid: uid("oid"),
+      side: pos.side === "short" ? "buy" : "sell",
+      price: wl.px,
+      qty: wl.qty,
+      status: "armed",
+      reduceOnly: true,
+      exchangeOrderId: null,
+      filledAt: null,
+      origin: "grid",
+      lane: wl.lane,
+      createdAt: Date.now(),
+      lotId: S.journal.find((j) => j.status === "open")?.id
+    });
+  }
   S.grid.sort((a, b) => b.price - a.price);
 }
 function coveringLoser(l, p) {
@@ -4837,8 +4865,10 @@ function creditExFillReal(l, delta, fp, realFee) {
     return false;
   }
   if (rem > 0) {
-    armCompEntry(delta);
-    pushLog("server", "\u062C\u0646\u064A \u062C\u0632\u0626\u064A " + fmtUsd(net) + " \u2014 \u0627\u0644\u0645\u062A\u0628\u0642\u064A " + rem + " \u0645\u062D\u0641\u0648\u0638 \u0639\u0646\u062F \u0646\u0641\u0633 \u0627\u0644\u0646\u0642\u0637\u0629 " + fmtPx(l.price) + " \u0648\u0639\u064F\u0648\u0651\u0636 \u0627\u0644\u0645\u064F\u062C\u0646\u0627\u0629 \u0628\u0645\u0646\u0637\u0642\u0629 \u062F\u062E\u0648\u0644 \u0639\u0646\u062F \u0627\u0644\u0645\u062A\u0648\u0633\u0637");
+    if (l.lane !== "arrow") {
+      armCompEntry(delta);
+      pushLog("server", "\u062C\u0646\u064A \u062C\u0632\u0626\u064A " + fmtUsd(net) + " \u2014 \u0627\u0644\u0645\u062A\u0628\u0642\u064A " + rem + " \u0645\u062D\u0641\u0648\u0638 \u0639\u0646\u062F \u0646\u0641\u0633 \u0627\u0644\u0646\u0642\u0637\u0629 " + fmtPx(l.price) + " \u0648\u0639\u064F\u0648\u0651\u0636 \u0627\u0644\u0645\u064F\u062C\u0646\u0627\u0629 \u0628\u0645\u0646\u0637\u0642\u0629 \u062F\u062E\u0648\u0644 \u0639\u0646\u062F \u0627\u0644\u0645\u062A\u0648\u0633\u0637");
+    } else pushLog("server", "\u062C\u0646\u064A \u062C\u0632\u0626\u064A " + fmtUsd(net) + " \u2014 \u{1F9F9} \u0634\u0631\u064A\u062D\u0629 \u0627\u0644\u0633\u0647\u0645 \u0644\u0627 \u062A\u064F\u0639\u0648\u064E\u0651\u0636 \u0628\u0634\u0631\u0627\u0621 (\u0623\u0645\u0631 \u0627\u0644\u0645\u0627\u0644\u0643 14 \u0646\u0648\u0641\u0645\u0628\u0631): \u0627\u0644\u0645\u062A\u0628\u0642\u064A " + rem + " \u0645\u062D\u0641\u0648\u0638 \u0639\u0646\u062F \u0646\u0641\u0633 \u0627\u0644\u0646\u0642\u0637\u0629 " + fmtPx(l.price) + " \u0648\u0627\u0644\u062E\u0637\u0631 \u0635\u0627\u0631 \u0623\u0635\u063A\u0631");
     if (S.status === "running") syncPositionTp();
   }
   return false;
@@ -5901,7 +5931,11 @@ function studiedEarlyExit(p) {
   const grossNow = (pos.side === "long" ? p - pos.entry : pos.entry - p) * mult * qty;
   const netNow = grossNow - openFees - exitFee;
   if (netNow > 0) S._posPeakNet = Math.max(S._posPeakNet || 0, netNow);
-  if (!(netNow >= Math.max(0.08, dynamicTpNet() * 0.2))) return null;
+  const _pt = S.priceTrail || [], _recent = _pt.slice(-60);
+  const _ref = _recent.length >= 30 ? pos.side === "long" ? Math.min(..._recent) : Math.max(..._recent) : 0;
+  const spikePct = _ref > 0 ? pos.side === "long" ? (p - _ref) / _ref : (_ref - p) / _ref : 0;
+  const spike = spikePct >= 22e-4;
+  if (!spike && !(netNow >= Math.max(0.08, dynamicTpNet() * 0.2))) return null;
   const dir2 = pos.side === "long" ? 1 : -1;
   let hit = null;
   const ob = S.orderBook || {};
@@ -5939,6 +5973,11 @@ function studiedEarlyExit(p) {
     const worthwhile = netNow >= Math.max(0.08, tgt * 0.08);
     if (engaged && retraced && worthwhile)
       hit = { netNow, why: "\u0630\u0631\u0648\u0629 \u0627\u0644\u0631\u0628\u062D \u0643\u0627\u0646\u062A " + peak.toFixed(2) + "$ \u0648\u062A\u0631\u0627\u062C\u0639\u062A \u0625\u0644\u0649 " + netNow.toFixed(2) + "$ \u2014 \u0642\u0641\u0644 \u0627\u0644\u0631\u0628\u062D \u0642\u0628\u0644 \u0630\u0648\u0628\u0627\u0646\u0647 \u0627\u0644\u0643\u0627\u0645\u0644", tag: "peaklock" };
+  }
+  if (!hit && spike) {
+    const flr = Math.max(0.05, Math.min(exitFee * 2 + openFees, tpBase() * 0.9));
+    if (netNow >= flr)
+      hit = { netNow, why: "\u0627\u0646\u062F\u0641\u0627\u0639 \u0639\u0645\u0648\u062F\u064A \u0644\u0635\u0627\u0644\u062D \u0627\u0644\u0635\u0641\u0642\u0629 (" + (spikePct * 100).toFixed(2) + "% \u062E\u0644\u0627\u0644 \u0622\u062E\u0631 \u062F\u0642\u064A\u0642\u0629) \u2014 \u0627\u0644\u0628\u064A\u0639 \u062F\u0627\u062E\u0644 \u0627\u0644\u0627\u0646\u062F\u0641\u0627\u0639 \u0642\u0628\u0644 \u0627\u0631\u062A\u062F\u0627\u062F\u0647", tag: "spike" };
   }
   if (hit) {
     S._earlyExitAt = Date.now();
@@ -7485,7 +7524,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.33";
+var SRV_VER = "AB-210-TRQ-1.1.34";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
