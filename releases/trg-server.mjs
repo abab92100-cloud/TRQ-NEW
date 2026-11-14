@@ -3261,7 +3261,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.34 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fastexit fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.35 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fastexit rescue fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4239,7 +4239,7 @@ function sanitizeAdds() {
     for (const g of S.grid) {
       if (g.reduceOnly || g.filledAt) continue;
       if (g.status !== "armed" && g.status !== "open") continue;
-      if (g.lane === "trend" || g.lane === "comp") continue;
+      if (g.lane === "trend" || g.lane === "comp" || g.lane === "rescue") continue;
       const gs = g.side === "sell" ? "short" : "long";
       if (!side || gs === side) {
         g.status = "cancelled";
@@ -4525,6 +4525,13 @@ function notePartialClose(qty, exit, fee, lotId) {
 function armCompEntry(qty) {
   const pos = S.position;
   if (!pos || !(qty > 0)) return;
+  if (Date.now() - (Number(pos.openedAt) || Date.now()) >= 4 * 36e5) {
+    if (!S._rescueCompAt || Date.now() - S._rescueCompAt > 6e5) {
+      S._rescueCompAt = Date.now();
+      pushLog("server", "\u{1F6DF} \u0648\u0636\u0639 \u0627\u0644\u0625\u0646\u0642\u0627\u0630: \u0644\u0627 \u062A\u0639\u0648\u064A\u0636 \u0639\u0646\u062F \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u062F\u062E\u0648\u0644 \u0627\u0644\u0628\u0639\u064A\u062F\u0629 \u2014 \u0645\u0646\u0627\u0637\u0642 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 \u0642\u0631\u0628 \u0627\u0644\u0633\u0639\u0631 \u062A\u0635\u0646\u0639 \u0627\u0644\u0631\u0628\u062D \u0648\u062A\u064F\u0646\u0632\u0651\u0644 \u0646\u0642\u0637\u0629 \u0627\u0644\u062E\u0631\u0648\u062C");
+    }
+    return;
+  }
   if (!spacingGate(pos.entry)) return;
   const side = pos.side === "short" ? "sell" : "buy";
   const px = roundTick(pos.entry, S.tickSize || 1e-10);
@@ -4652,14 +4659,16 @@ function syncPositionTp() {
   const feesCov = (entryFees + exitFee) / notional;
   const ageMin = (Date.now() - (Number(pos.openedAt) || Date.now())) / 6e4;
   const guaranteed = ageMin >= 15;
+  const rescueMode = ageMin >= 240;
   const eps = clamp(0.05 / Math.max(1, notional), 15e-5, 4e-4);
   const banked = S._tpBanked || 0;
   const dir2 = pos.side === "long" ? 1 : -1;
   const priceAt = (cov) => roundTick(pos.entry * (1 + dir2 * cov), S.tickSize);
-  const lanes = banked > 0 || pos.size < 3 ? [{ lane: "main", frac: 1, cov: guaranteed ? feesCov + eps : feesCov + needPos / notional }] : [
-    { lane: "arrow", frac: 0.4, cov: feesCov + eps },
-    { lane: "mid", frac: 0.35, cov: guaranteed ? feesCov + eps : feesCov + 0.45 * needPos / notional },
-    { lane: "main", frac: 0.25, cov: guaranteed ? feesCov + eps : feesCov + needPos / notional }
+  const gCov = Math.max(-0.5, feesCov + eps - (rescueMode ? banked / Math.max(1e-9, notional) : 0));
+  const lanes = banked > 0 || pos.size < 3 ? [{ lane: "main", frac: 1, cov: guaranteed ? gCov : feesCov + needPos / notional }] : [
+    { lane: "arrow", frac: 0.4, cov: guaranteed ? gCov : feesCov + eps },
+    { lane: "mid", frac: 0.35, cov: guaranteed ? gCov : feesCov + 0.45 * needPos / notional },
+    { lane: "main", frac: 0.25, cov: guaranteed ? gCov : feesCov + needPos / notional }
   ];
   let wantMain = priceAt(lanes[lanes.length - 1].cov);
   if (!(wantMain > 0)) return;
@@ -4680,18 +4689,36 @@ function syncPositionTp() {
   }
   lanes[lanes.length - 1].px = wantMain;
   for (let li = 0; li < lanes.length - 1; li++) lanes[li].px = priceAt(lanes[li].cov);
-  const liveTp = S.grid.filter((g) => g.reduceOnly && (g.status === "armed" || g.status === "open"));
+  const liveTp = S.grid.filter((g) => g.reduceOnly && (g.status === "armed" || g.status === "open") && g.lane !== "rescue-x");
   const remQty = (g) => Math.max(0, g.qty - (g.exFilled || 0));
   if (banked > 0) {
     const keep = liveTp.find((g) => Math.abs(remQty(g) - pos.size) < 1e-6);
     if (keep) {
-      for (const g of liveTp) {
-        if (g !== keep) {
-          g.status = "cancelled";
-          g.exchangeOrderId = null;
+      if (rescueMode) {
+        const nw = priceAt(gCov);
+        const tk = Math.max((S.tickSize || 1e-10) * 2, (keep.price || 0) * 2e-4);
+        const better = pos.side === "long" ? nw <= keep.price - tk : nw >= keep.price + tk;
+        if (better) {
+          keep.status = "cancelled";
+          keep.exchangeOrderId = null;
+        } else {
+          for (const g of liveTp) {
+            if (g !== keep) {
+              g.status = "cancelled";
+              g.exchangeOrderId = null;
+            }
+          }
+          return;
         }
+      } else {
+        for (const g of liveTp) {
+          if (g !== keep) {
+            g.status = "cancelled";
+            g.exchangeOrderId = null;
+          }
+        }
+        return;
       }
-      return;
     }
   }
   const laneOf = (g) => g.lane || "main";
@@ -4809,6 +4836,7 @@ function creditExFillReal(l, delta, fp, realFee) {
       );
       l._counted = true;
       l.lotId = l.lotId || lotId;
+      if (l.origin === "rescue" && !l.reduceOnly) armRescueExit(l, dd2.addedQty, fp, fee2);
     }
     S.lastAddAt = Date.now();
     if (l.qty - (l.exFilled || 0) > 1e-9) pushLog("server", "\u062A\u0646\u0641\u064A\u0630 \u062C\u0632\u0626\u064A: \u062F\u064F\u062E\u0644 " + delta + " \u0645\u0646 " + l.qty + " @ " + fmtPx(fp) + " \u2014 \u0627\u0644\u0628\u0627\u0642\u064A \u0645\u0639\u0644\u0651\u0642 \u064A\u064F\u0643\u0645\u0644 \u0623\u0648 \u064A\u064F\u0644\u063A\u0649 \u0639\u0646\u062F \u0627\u0644\u062C\u0646\u064A");
@@ -4828,6 +4856,10 @@ function creditExFillReal(l, delta, fp, realFee) {
   const dd = applyDelta(l.side, delta, fp);
   const net = notePartialClose(delta, fp, fee, l.lotId);
   S._tpBanked = Math.round(((S._tpBanked || 0) + net) * 1e4) / 1e4;
+  if (l.lane === "rescue-x") {
+    const cyc = (l.side === "sell" ? 1 : -1) * (fp - (l.entryPx || fp)) * (delta || 0) * (S.multiplier || 1) - (l.entryFee || 0) * Math.min(1, (delta || 0) / Math.max(1e-9, l.qty || 1)) - fee;
+    pushLog("server", "\u{1F6DF} \u062F\u0648\u0631\u0629 \u0625\u0646\u0642\u0627\u0630 \u0627\u0643\u062A\u0645\u0644\u062A: \u0628\u0650\u0639 \u062C\u0632\u0621 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 @ " + fmtPx(fp) + " \u2014 \u0631\u0628\u062D \u0627\u0644\u062F\u0648\u0631\u0629 " + fmtUsd(cyc) + " \u2014 \u0646\u0642\u0637\u0629 \u062E\u0631\u0648\u062C \u0627\u0644\u0635\u0641\u0642\u0629 \u0627\u0644\u0639\u0627\u0644\u0642\u0629 \u0643\u0644\u0647 \u0646\u0632\u0644\u062A \u0646\u062D\u0648 \u0627\u0644\u0633\u0639\u0631 (\u0628\u0646\u0643 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 " + fmtUsd(S._tpBanked) + ")");
+  }
   if (!S.position) {
     l.status = "filled";
     l.filledAt = Date.now();
@@ -4865,7 +4897,8 @@ function creditExFillReal(l, delta, fp, realFee) {
     return false;
   }
   if (rem > 0) {
-    if (l.lane !== "arrow") {
+    if (l.lane === "rescue-x") pushLog("server", "\u{1F6DF} \u062C\u0632\u0621 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 \u0644\u0627 \u064A\u064F\u0639\u0648\u064E\u0651\u0636 \u0628\u0634\u0631\u0627\u0621 \u0639\u0646\u062F \u0627\u0644\u0645\u062A\u0648\u0633\u0637 \u2014 \u062F\u0648\u0631\u0629 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u0639\u064A\u062F \u0627\u0644\u062A\u0633\u0644\u064A\u062D \u0645\u0646 \u0645\u0646\u0627\u0637\u0642 \u0642\u0631\u0628 \u0627\u0644\u0633\u0639\u0631");
+    else if (l.lane !== "arrow") {
       armCompEntry(delta);
       pushLog("server", "\u062C\u0646\u064A \u062C\u0632\u0626\u064A " + fmtUsd(net) + " \u2014 \u0627\u0644\u0645\u062A\u0628\u0642\u064A " + rem + " \u0645\u062D\u0641\u0648\u0638 \u0639\u0646\u062F \u0646\u0641\u0633 \u0627\u0644\u0646\u0642\u0637\u0629 " + fmtPx(l.price) + " \u0648\u0639\u064F\u0648\u0651\u0636 \u0627\u0644\u0645\u064F\u062C\u0646\u0627\u0629 \u0628\u0645\u0646\u0637\u0642\u0629 \u062F\u062E\u0648\u0644 \u0639\u0646\u062F \u0627\u0644\u0645\u062A\u0648\u0633\u0637");
     } else pushLog("server", "\u062C\u0646\u064A \u062C\u0632\u0626\u064A " + fmtUsd(net) + " \u2014 \u{1F9F9} \u0634\u0631\u064A\u062D\u0629 \u0627\u0644\u0633\u0647\u0645 \u0644\u0627 \u062A\u064F\u0639\u0648\u064E\u0651\u0636 \u0628\u0634\u0631\u0627\u0621 (\u0623\u0645\u0631 \u0627\u0644\u0645\u0627\u0644\u0643 14 \u0646\u0648\u0641\u0645\u0628\u0631): \u0627\u0644\u0645\u062A\u0628\u0642\u064A " + rem + " \u0645\u062D\u0641\u0648\u0638 \u0639\u0646\u062F \u0646\u0641\u0633 \u0627\u0644\u0646\u0642\u0637\u0629 " + fmtPx(l.price) + " \u0648\u0627\u0644\u062E\u0637\u0631 \u0635\u0627\u0631 \u0623\u0635\u063A\u0631");
@@ -4878,7 +4911,18 @@ function fillLevel(id, fp, taker) {
   if (!l || l.status === "filled") return;
   if (!l.reduceOnly && S.position && S.multiplier > 0) {
     const __notional = (S.position.size || 0) * S.multiplier * (S.position.entry || 0);
-    if (__notional > (S.config.cycleBalance || 0) * 4.2) {
+    if (l.lane === "rescue" && l.origin === "rescue") {
+      const __after = (S.position.size + (l.qty || 0)) * S.multiplier * Math.max(fp || 0, l.price || 0);
+      if (__after > (S.config.cycleBalance || 0) * 4.2) {
+        if (!S._exposureBlkAt || Date.now() - S._exposureBlkAt > 12e4) {
+          S._exposureBlkAt = Date.now();
+          pushLog("server", "\u{1F6D1} \u0623\u0645\u0631 \u0625\u0646\u0642\u0627\u0630 \u0631\u064F\u0641\u0636: \u0627\u0644\u0645\u0631\u0643\u0632 \u0628\u0639\u062F\u0647 " + fmtUsd(__after) + " \u064A\u062A\u062C\u0627\u0648\u0632 4.2\xD7 \u0646\u0635\u064A\u0628 \u0627\u0644\u0645\u062D\u0631\u0643");
+        }
+        l.status = "cancelled";
+        l.exchangeOrderId = null;
+        return;
+      }
+    } else if (__notional > (S.config.cycleBalance || 0) * 4.2) {
       if (!S._exposureBlkAt || Date.now() - S._exposureBlkAt > 12e4) {
         S._exposureBlkAt = Date.now();
         pushLog("server", "\u{1F6D1} \u0633\u0642\u0641 \u0627\u0644\u062A\u0639\u0631\u0636 \u0627\u0644\u0645\u0646\u0635\u0651\u064A: \u0627\u0644\u0645\u0631\u0643\u0632 " + fmtUsd(__notional) + " > 4.2\xD7 \u0646\u0635\u064A\u0628 \u0627\u0644\u0645\u062D\u0631\u0643 (\u0623\u0631\u0628\u0639\u0629 \u0623\u0648\u0627\u0645\u0631 \u0643\u062D\u062F \u0623\u0642\u0635\u0649) \u2014 \u0623\u064F\u0648\u0642\u0641\u062A \u0627\u0644\u0625\u0636\u0627\u0641\u0627\u062A");
@@ -4888,7 +4932,12 @@ function fillLevel(id, fp, taker) {
       return;
     }
   }
-  if (!l.reduceOnly && (batchHoldActive() || S._noNewEntries)) {
+  if (!l.reduceOnly && l.lane !== "rescue" && (batchHoldActive() || S._noNewEntries)) {
+    l.status = "cancelled";
+    l.exchangeOrderId = null;
+    return;
+  }
+  if (!l.reduceOnly && l.lane === "rescue" && S._noNewEntries) {
     l.status = "cancelled";
     l.exchangeOrderId = null;
     return;
@@ -4922,10 +4971,27 @@ function fillLevel(id, fp, taker) {
         }
       }
     }
+    if (l.origin === "rescue" && !l.reduceOnly) armRescueExit(l, d.addedQty, fp, fee);
   }
   if (d.closedQty > 0) {
     const src = l.origin === "hunt" ? "\u0635\u0641\u0642\u0629" : "\u0634\u0628\u0643\u0629";
     const row = l.lotId ? S.journal.find((j) => j.id === l.lotId) : null;
+    if (l.lane === "rescue-x" && row) {
+      const rnet = notePartialClose(d.closedQty, fp, fee, l.lotId);
+      S._tpBanked = Math.round(((S._tpBanked || 0) + rnet) * 1e4) / 1e4;
+      const cyc = (l.side === "sell" ? 1 : -1) * (fp - (l.entryPx || fp)) * (d.closedQty || 0) * (S.multiplier || 1) - (l.entryFee || 0) * Math.min(1, (d.closedQty || 0) / Math.max(1e-9, l.qty || 1)) - fee;
+      pushLog("server", "\u{1F6DF} \u062F\u0648\u0631\u0629 \u0625\u0646\u0642\u0627\u0630 \u0627\u0643\u062A\u0645\u0644\u062A: \u0628\u0650\u0639 \u062C\u0632\u0621 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 @ " + fmtPx(fp) + " \u2014 \u0631\u0628\u062D \u0627\u0644\u062F\u0648\u0631\u0629 " + fmtUsd(cyc) + " \u2014 \u0646\u0642\u0637\u0629 \u062E\u0631\u0648\u062C \u0627\u0644\u0635\u0641\u0642\u0629 \u0627\u0644\u0639\u0627\u0644\u0642\u0629 \u0643\u0644\u0647 \u0646\u0632\u0644\u062A \u0646\u062D\u0648 \u0627\u0644\u0633\u0639\u0631 (\u0628\u0646\u0643 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 " + fmtUsd(S._tpBanked) + ")");
+      if (S.position && S.status === "running") syncPositionTp();
+      else if (!S.position) {
+        _harvestCleanup(fp);
+        pushLog("server", "\u{1F6DF} \u062C\u0646\u064A \u0645\u0643\u062A\u0645\u0644 \u0639\u0628\u0631 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 \u2713 \u2014 \u0628\u0646\u0643 " + fmtUsd(S._tpBanked));
+        if (S.status === "running") maybeSwitchSymbol().catch(() => {
+        });
+      }
+      S.lastWorkAt = Date.now();
+      notify("\u062F\u0648\u0631\u0629 \u0625\u0646\u0642\u0627\u0630: \u0631\u0628\u062D " + fmtUsd(cyc), "win");
+      return;
+    }
     const net = row ? lotNet(row.side, row.entry, fp, row.qty, row.fees + fee) : d.realized - fee;
     noteClose(d.closedQty, fp, fee, src, net, l.lotId);
     if (l.origin === "hunt" && l.reduceOnly) S.huntOpen = Math.max(0, (S.huntOpen || 0) - 1);
@@ -4967,7 +5033,7 @@ function selectDueAdds(due, p) {
   if (studying()) return [];
   if (toxicBlocked(S.config.direction)) return [];
   if (S.position && (lastJumpPct() > 0.4 || !bookQuality())) return [];
-  const adds = due.filter((l) => !l.reduceOnly && !coveringLoser(l, p)).sort((a, b) => Math.abs(a.price - p) - Math.abs(b.price - p));
+  const adds = due.filter((l) => !l.reduceOnly && l.lane !== "rescue" && !coveringLoser(l, p)).sort((a, b) => Math.abs(a.price - p) - Math.abs(b.price - p));
   const now = Date.now();
   return adds.filter(() => !(S.startedAt && now - S.startedAt < SCOUT_MS && filledAdds() >= 1)).filter(() => !(S.lastAddAt && now - S.lastAddAt < ADD_COOLDOWN)).slice(0, 1);
 }
@@ -5377,6 +5443,7 @@ function packHunt(p) {
     pushLog("warn", "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0645\u0648\u0627\u0635\u0641\u0627\u062A \u0627\u0644\u0639\u0642\u062F \u2014 \u0644\u0627 \u062F\u062E\u0648\u0644 \u0628\u062D\u062C\u0645 \u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641");
     return null;
   }
+  if (S.position) return { side: S.position.side === "short" ? "sell" : "buy", qty: contractsForLevel(p) };
   return { side: S.config.direction === "short" ? "sell" : "buy", qty: contractsForLevel(p) };
 }
 function huntTrigger(p) {
@@ -5487,14 +5554,11 @@ function maybeHunt(p) {
   const hit = huntTrigger(p);
   if (!hit) return false;
   if (S.position && hit.side !== S.position.side) {
-    const __mult = S.multiplier || 1, __g = (S.position.side === "long" ? p - S.position.entry : S.position.entry - p) * __mult * (S.position.size || 0);
-    if (__g < 0.01) {
-      if (!S._noLossHuntAt || Date.now() - S._noLossHuntAt > 18e4) {
-        S._noLossHuntAt = Date.now();
-        pushLog("server", "\u{1F6E1}\uFE0F \u0631\u0641\u0636 \u0635\u064A\u062F \u0645\u0639\u0627\u0643\u0633 \u064A\u063A\u0644\u0642 \u0628\u062E\u0633\u0627\u0631\u0629 (" + fmtUsd(__g) + ") \u2014 \u0627\u0644\u0635\u0645\u0648\u062F \u062D\u062A\u0649 \u0627\u0644\u062C\u0646\u064A");
-      }
-      return false;
+    if (!S._noLossHuntAt || Date.now() - S._noLossHuntAt > 6e5) {
+      S._noLossHuntAt = Date.now();
+      pushLog("server", "\u{1F9ED} \u0642\u0641\u0644 \u0627\u0644\u0627\u062A\u062C\u0627\u0647 (\u0623\u0645\u0631 \u0627\u0644\u0645\u0627\u0644\u0643 14 \u0646\u0648\u0641\u0645\u0628\u0631): \u0644\u0627 \u0635\u0641\u0642\u0629 \u0645\u0639\u0627\u0643\u0633\u0629 \u0639\u0644\u0649 \u0639\u0645\u0644\u0629 \u0641\u064A\u0647\u0627 \u0645\u0631\u0643\u0632 \u2014 \u0627\u0644\u0635\u064A\u062F \u0628\u062C\u0647\u0629 \u0627\u0644\u0645\u0631\u0643\u0632 \u062D\u0635\u0631\u0627\u064B");
     }
+    return false;
   }
   {
     const W = 2 * 36e5, now = Date.now();
@@ -5708,6 +5772,114 @@ async function scalpHarvest(p) {
   } catch {
   }
 }
+async function rescueTick(p) {
+  try {
+    if (S.status !== "running" || !p || !S.position) return;
+    const pos = S.position;
+    if (!(pos.size > 0) || !(p > 0)) return;
+    const ageH = (Date.now() - (Number(pos.openedAt) || Date.now())) / 36e5;
+    if (ageH < 4) return;
+    S._rescueMode = Date.now();
+    if (S._noNewEntries) return;
+    if (!S._entriesEnabled) return;
+    if (volBrakeActive()) return;
+    if (exposureCapped()) return;
+    if ((pos.size || 0) * (S.multiplier || 1) * (pos.entry || 0) > (S.config.cycleBalance || 0) * 3) return;
+    if (S._rescueArmAt && Date.now() - S._rescueArmAt < 3e4) return;
+    const armedRescue = (S.grid || []).filter((g) => g.origin === "rescue" && !g.reduceOnly && (g.status === "armed" || g.status === "open"));
+    if (armedRescue.length >= 2) return;
+    const short = pos.side === "short";
+    const zones = await bounceZones(short);
+    if (!zones || !zones.length) return;
+    const pool = zones.filter((z2) => {
+      const d = (p - z2.px) / p;
+      return short ? d <= 1e-3 && d >= -0.01 : d >= -1e-3 && d <= 0.01;
+    }).filter((z2) => !armedRescue.some((g) => g.price > 0 && Math.abs(g.price - z2.px) / z2.px < 15e-4));
+    if (!pool.length) return;
+    pool.sort((a, b) => {
+      const am = Math.min(a.touch || 0, 2), bm = Math.min(b.touch || 0, 2);
+      if (am !== bm) return bm - am;
+      return Math.abs(a.px - p) - Math.abs(b.px - p);
+    });
+    const z = pool[0];
+    const want = Math.max(1, Math.round(pos.size / 5));
+    const q = Math.max(1, Math.min(want, capEntryQty(want, z.px)));
+    const px = roundTick(z.px, S.tickSize);
+    if (!(px > 0) || !(q > 0)) return;
+    const side = short ? "sell" : "buy";
+    const entry = {
+      id: uid("rsc"),
+      clientOid: uid("oid"),
+      side,
+      price: px,
+      qty: q,
+      status: "armed",
+      reduceOnly: false,
+      exchangeOrderId: null,
+      filledAt: null,
+      origin: "rescue",
+      lane: "rescue",
+      createdAt: Date.now()
+    };
+    if (S.config.mode === "live" && S.keys) {
+      try {
+        const r = await exPlaceLimit({
+          clientOid: entry.clientOid,
+          symbol: S.config.symbol,
+          side,
+          price: px,
+          qty: q,
+          reduceOnly: false,
+          leverage: S.config.leverage
+        });
+        entry.status = "open";
+        entry.exchangeOrderId = r && r.orderId;
+      } catch (e) {
+        pushLog("warn", "\u{1F6DF} \u0623\u0645\u0631 \u0625\u0646\u0642\u0627\u0630 \u0631\u064F\u0641\u0636 \u0645\u0646 \u0627\u0644\u0645\u0646\u0635\u0629: " + String(e && e.message || e));
+        return;
+      }
+    }
+    S.grid.push(entry);
+    S.grid.sort((a, b) => b.price - a.price);
+    S._rescueArmAt = Date.now();
+    pushLog("server", "\u{1F6DF} \u0625\u0646\u0642\u0627\u0630 \u0627\u0644\u0639\u0627\u0644\u0642 (" + Math.floor(ageH) + " \u0633): \u062A\u0633\u0644\u064A\u062D " + (short ? "\u0628\u064A\u0639" : "\u0634\u0631\u0627\u0621") + " " + q + " @ " + fmtPx(px) + " \u0645\u0646 \u0645\u0646\u0637\u0642\u0629 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u062E\u062A\u0628\u0631\u0629 (" + z.touch + " \u0644\u0645\u0633\u0627\u062A) \u2014 \u064A\u064F\u0628\u0627\u0639 \u062C\u0632\u0624\u0647 \u062F\u0627\u062E\u0644 \u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F \u0648\u0631\u0628\u062D\u0647 \u064A\u064F\u0646\u0632\u0651\u0644 \u0646\u0642\u0637\u0629 \u0627\u0644\u062E\u0631\u0648\u062C");
+  } catch (e) {
+    logSwallow("rescue", e);
+  }
+}
+function armRescueExit(l, qty, fp, rfee) {
+  try {
+    if (!(qty > 0) || !(fp > 0) || !S.position || S.status !== "running") return;
+    const short = S.position.side === "short";
+    const prof = profOf() || {};
+    const rcov = Math.max(24e-4, Math.max(0, +prof.spread || 0.02) / 100 * 2 + 24e-4);
+    const px = roundTick(fp * (short ? 1 - rcov : 1 + rcov), S.tickSize);
+    if (!(px > 0)) return;
+    const tol = Math.max((S.tickSize || 1e-10) * 2, px * 1e-7);
+    if (S.grid.some((g) => g.lane === "rescue-x" && (g.status === "armed" || g.status === "open") && Math.abs(g.price - px) <= tol)) return;
+    S.grid.push({
+      id: uid("rsx"),
+      clientOid: uid("oid"),
+      side: short ? "buy" : "sell",
+      price: px,
+      qty: Math.max(1, Math.round(qty)),
+      status: "armed",
+      reduceOnly: true,
+      exchangeOrderId: null,
+      filledAt: null,
+      origin: "rescue",
+      lane: "rescue-x",
+      createdAt: Date.now(),
+      lotId: l.lotId,
+      entryPx: fp,
+      entryFee: rfee || 0
+    });
+    S.grid.sort((a, b) => b.price - a.price);
+    pushLog("server", "\u{1F6DF} \u0628\u064A\u0639 \u062C\u0632\u0621 \u0627\u0644\u0625\u0646\u0642\u0627\u0630 \u0645\u0633\u0644\u0651\u062D @ " + fmtPx(px) + " (+" + (rcov * 100).toFixed(2) + "% \u0641\u0648\u0642 \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0625\u0646\u0642\u0627\u0630) \u2014 \u0631\u0628\u062D \u0627\u0644\u062F\u0648\u0631\u0629 \u0627\u0644\u062D\u0642\u064A\u0642\u064A \u064A\u064F\u0646\u0632\u0651\u0644 \u0646\u0642\u0637\u0629 \u062E\u0631\u0648\u062C \u0627\u0644\u0639\u0627\u0644\u0642 \u0643\u0644\u0647");
+  } catch (e) {
+    logSwallow("rescue-exit", e);
+  }
+}
 async function noProgressRotate(p) {
   if (!p || S.status !== "running" || !S.position) return;
   const pos = S.position;
@@ -5846,7 +6018,8 @@ function ensureGrid() {
     if (S.position) syncPositionTp();
     return;
   }
-  const keep = S.grid.filter((g) => g.status === "filled" || g.status === "cancelled" || g.status === "staged" || g.reduceOnly && (g.status === "open" || g.status === "armed"));
+  const keep = S.grid.filter((g) => g.status === "filled" || g.status === "cancelled" || g.status === "staged" || g.lane === "rescue" || g.lane === "rescue-x" || // v1.1.35 «منقذ»: أوامر الإنقاذ لا تُمس
+  g.reduceOnly && (g.status === "open" || g.status === "armed"));
   S.grid = [...keep, ...buildGrid(center, false, 4)].filter((g) => keep.includes(g) || g.reduceOnly || g.status !== "armed" || !shouldFill(g, center));
   S.gridAnchor = center;
   S.grid.sort((a, b) => b.price - a.price);
@@ -6865,11 +7038,12 @@ async function botTick() {
     resolveDirection(Date.now());
     if (S.config.direction !== _prevDir) {
       S.gridAnchor = null;
+      const _gov = S.position ? S.position.side === "short" ? "short" : "long" : S.config.direction;
       for (const g of S.grid) {
         if (g.reduceOnly || g.filledAt) continue;
         if (g.status !== "armed" && g.status !== "open") continue;
         const gs = g.side === "sell" ? "short" : "long";
-        if (gs !== S.config.direction) {
+        if (gs !== _gov) {
           g.status = "cancelled";
           g.exchangeOrderId = null;
         }
@@ -6881,12 +7055,17 @@ async function botTick() {
       await noProgressRotate(price);
       await circuitBreak(price);
       await escapeAdverse(price);
+      rescueTick(price).catch(() => {
+      });
       harvestRipe(price);
       const due = S.grid.filter((l) => shouldFill(l, price));
       if (S.config.mode !== "live") for (const l of selectDueAdds(due, price)) {
         const before = filledAdds();
         fillLevel(l.id, l.price, false);
         if (filledAdds() > before) S.lastAddAt = Date.now();
+      }
+      if (S.config.mode !== "live") for (const l of due.filter((x) => x.lane === "rescue")) {
+        fillLevel(l.id, l.price, false);
       }
       const hunt = huntTrigger(price);
       if (hunt && !S.permDenied && price > 0 && !ladderOn()) {
@@ -7524,7 +7703,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.34";
+var SRV_VER = "AB-210-TRQ-1.1.35";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
