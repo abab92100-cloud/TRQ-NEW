@@ -159,6 +159,9 @@ async function placeGroupBounce(g: number) {
   if (st.placing) return;
   st.placing = true;
   try {
+    /* v1.1.36 «فُتاح»: عملة يملكها محرك آخر — لا تسليح أوامر دخول عليها
+       أبداً (نافذة السباق كانت تترك أوامراً تُملأ فتفتح صفقة معاكسة) */
+    if (!S.position && (S._fleetTaken || []).map(String).includes(String(S.config.symbol))) return;
     const short = ladderShort();
     const zones = await bounceZones(short);
     const px0 = S.lastPrice || (S.position ? S.position.entry : 0);
@@ -201,6 +204,7 @@ async function placeGroupBounce(g: number) {
     const fr = [1.0, 0.5, 0.5, 0.5]; // v1.1.22 «ضخامة»: الرئيسي بالنصيب كاملاً والإضافات بأنصافه (كان 40/25/20/15 من خُمس النصيب = أوامر 3-5$)
     const side = short ? 'sell' : 'buy';
     let placed = 0;
+    let __roomN = -1; let __minN = 5; // v1.1.36: تشخيص السبب الحقيقي عند عدم التسليح
     for (let k = 0; k < chosen.length && k < GROUP_SIZE; k++) {
       const z = chosen[k];
       const mult = S.multiplier || 1;
@@ -221,6 +225,7 @@ async function placeGroupBounce(g: number) {
         const qCap = Math.max(0, Math.min(Math.floor(roomN / cvx), Math.floor(roomM * lev2 / cvx)));
         // لا أوامر تافهة (ضخامة): المنطقة التي لا تجد ربع النصيب لا تُسلَّح
         const minNotional = Math.min(Math.max(5, shareN * 0.25), shareN);
+        __minN = minNotional; __roomN = Math.min(roomN, roomM * lev2); // v1.1.36: آخر غرفة حقيقية
         if (qCap * cvx < Math.min(minNotional, shareN * 0.99)) break; // السقف اكتمل — لا مزيد من مناطق هذه المجموعة
         if (q > qCap) q = qCap;
         else if (q * cvx < Math.min(minNotional, shareN * 0.99)) continue; }
@@ -242,7 +247,7 @@ async function placeGroupBounce(g: number) {
         ' لمسات) بوزن النصيب كاملاً (ضخامة v1.1.22)، والإضافات بأنصافه عند المناطق المختبرة فقط');
       emit();
     } else if (!st.noZoneAt || Date.now() - st.noZoneAt > 300000) { st.noZoneAt = Date.now();
-      pushLog('server', '[ladder] 🎯 أحجام المناطق المدروسة أصغر من حد المنصة — صيد هادئ'); }
+      pushLog('server', '[ladder] 🎯 لا هامش كافٍ لتمويل مناطق مدروسة — الغرفة المتاحة ' + fmtUsd(Math.max(0, __roomN)) + '$ وأصغر أمر تقبله المنصة ' + fmtUsd(__minN) + '$ — صيد هادئ حتى يتحرر الهامش من الصفقات العالقة'); }
   } catch (e) {
     if (!st.fetchFailAt || Date.now() - st.fetchFailAt > 60000) { st.fetchFailAt = Date.now();
       pushLog('server', '[ladder] تعذر جلب شموع الدراسة — إعادة المحاولة خلال دقيقة'); }
