@@ -184,7 +184,7 @@ async function placeGroupBounce(g: number) {
     const exl = S.exLiqPrice || 0;
     if (exl > 0) pool = pool.filter((z: any) => short ? z.px < exl * 0.98 : z.px > exl * 1.02);
     // لا تكديس: منطقة بمحاذاة أمر قائم (ضمن 0.15%) تُتخطى — عمق مدروس لا عشوائي
-    const existing = (S.grid || []).filter((l: any) => l.origin === 'ladder' &&
+    const existing = (S.grid || []).filter((l: any) => (l.origin === 'ladder' || l.lane === 'avgfix') &&
       (l.status === 'armed' || l.status === 'open' || l.filledAt));
     pool = pool.filter((z: any) => !existing.some((l: any) => l.price > 0 && Math.abs(l.price - z.px) / z.px < 0.0015));
     // v1.1.16 «اضرب واهرب»: منطقة قوية (لمستان فأكثر) أولاً، ثم الأقرب —
