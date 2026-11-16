@@ -3240,6 +3240,36 @@ function syncBooks(totalEq, share) {
   emit();
   return { ok: true, equity: eq, share: S.config.cycleBalance, clearedProfit: beforeP };
 }
+function sweepRealizedCapital() {
+  const eq = Number(S.exEquity) || 0;
+  if (!(eq > 0)) return { ok: false };
+  const fN = typeof FLEET_MODE === "function" && FLEET_MODE() ? 5 : 1;
+  const unreal = (S.exPositions || []).reduce((a, x) => a + (Number(x && x.pnl) || 0), 0);
+  const cash = Math.max(0, eq - unreal);
+  const books = fN * ((Number(S.config.cycleBalance) || 0) + (Number(S.realizedPnl) || 0) - (Number(S.feesPaid) || 0));
+  const gap = cash - books;
+  if (Math.abs(gap) > Math.max(3, Math.abs(books) * 0.05))
+    pushLog("warn", "\u26A0\uFE0F \u0645\u0637\u0627\u0628\u0642\u0629 \u0627\u0644\u062D\u0633\u0627\u0628: \u0631\u0635\u064A\u062F \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0645\u062D\u0642\u0642 " + fmtUsd(cash) + " \u0645\u0642\u0627\u0628\u0644 \u062F\u0641\u0627\u062A\u0631 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 " + fmtUsd(books) + " (\u0641\u0627\u0631\u0642 " + fmtUsd(gap) + ") \u2014 \u0627\u0644\u0645\u0646\u0635\u0629 \u0647\u064A \u0627\u0644\u0645\u0631\u062C\u0639");
+  const share = Math.round(cash / fN * 100) / 100;
+  const oldCB = Math.round((Number(S.config.cycleBalance) || 0) * 100) / 100;
+  if (!(share > 0) || Math.abs(share - oldCB) < Math.max(0.5, oldCB * 0.02))
+    return { ok: true, share, changed: false };
+  S.config.cycleBalance = share;
+  S.realizedPnl = 0;
+  S.feesPaid = 0;
+  pushLog("server", share > oldCB ? "\u{1F4B0} \u0631\u0628\u062D \u0645\u062D\u0642\u0642 \u062F\u062E\u0644 \u0631\u0623\u0633 \u0627\u0644\u0645\u0627\u0644: \u0646\u0635\u064A\u0628 \u0627\u0644\u0645\u062D\u0631\u0643 " + fmtUsd(share) + " (\u0643\u0627\u0646 " + fmtUsd(oldCB) + ") \u2014 \u0627\u0644\u0623\u0631\u0628\u0627\u062D \u062A\u0634\u062A\u063A\u0644 \u0627\u0644\u0622\u0646 \u0641\u064A \u0627\u0644\u0623\u0633\u0637\u0648\u0644 \u0643\u0644\u0647: \u0623\u062D\u062C\u0627\u0645 \u0623\u0648\u0627\u0645\u0631 \u0623\u0648\u0633\u0639 \u0648\u0633\u0642\u0641 \u062A\u0639\u0631\u0636 \u0648\u0647\u0627\u0645\u0634 \u0625\u0635\u0644\u0627\u062D \u0645\u062A\u0648\u0633\u0637 \u0623\u0643\u0628\u0631" : "\u{1F4C9} \u062E\u0633\u0627\u0626\u0631 \u0645\u062D\u0642\u0642\u0629 \u0627\u0646\u0639\u0643\u0633\u062A \u0639\u0644\u0649 \u0627\u0644\u0646\u0635\u064A\u0628: " + fmtUsd(share) + " (\u0643\u0627\u0646 " + fmtUsd(oldCB) + ") \u2014 \u0627\u0644\u0623\u062D\u062C\u0627\u0645 \u062A\u062A\u0642\u0644\u0635 \u0628\u0635\u062F\u0642 \u0627\u062A\u0642\u0627\u0621\u064B \u0644\u0644\u062A\u0635\u0641\u064A\u0629 (\u0627\u0644\u062A\u0635\u0641\u064A\u0629 \u0639\u0644\u0649 \u0631\u0635\u064A\u062F \u0627\u0644\u062D\u0633\u0627\u0628 \u0643\u0644\u0647)");
+  try {
+    saveAll();
+  } catch (e) {
+    logSwallow("capsync", e);
+  }
+  try {
+    emit();
+  } catch (e) {
+    logSwallow("capsync", e);
+  }
+  return { ok: true, share, changed: true, from: oldCB };
+}
 function gridStatus() {
   const c = S.config;
   return {
@@ -3266,7 +3296,7 @@ function strategyFingerprint() {
     "tp:rel+fee3x(v1.1.7)",
     "maxOrd:4",
     "grp:4",
-    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.37 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fastexit rescue swing avgfix fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
+    c.ladderMode ? c.bounceMode !== false ? "ladder:bounce-zones v1.1.38 storm-in fleet-spread veto-escape active55 heavy-share pure-pick scalp10 rocket repeat5m ambush dirlock stayharvest bookshield truebooks fastexit rescue swing avgfix capshare noloss fast-tp linkfix waits " + waitsDesc() + " main100% boost" + entryBoost() + " sticky" + (Math.max(5, Math.round(Number(S.config && S.config.stickMin) || 30)) + "m") + " studied hitrun" + (Number(c.tpMovePct) || 0.24) + "%" : "ladder:on 0.30/0.40/0.50/0.60/0.70% waits " + waitsDesc() + " asc25eq5" : "ladder:off"
   ].join("|");
 }
 function alignStrategy(cfg) {
@@ -4680,7 +4710,8 @@ function syncPositionTp() {
   const banked = S._tpBanked || 0;
   const dir2 = pos.side === "long" ? 1 : -1;
   const priceAt = (cov) => roundTick(jAvg * (1 + dir2 * cov), S.tickSize);
-  const gCov = Math.max(-0.5, feesCov + eps - (rescueMode ? banked / Math.max(1e-9, notional) : 0));
+  const fundCov = Math.min(0.02, Math.max(0, Number(S.fundingPaid) || 0) / Math.max(1e-9, notional));
+  const gCov = Math.max(-0.5, feesCov + eps + fundCov);
   const lanes = banked > 0 || pos.size < 3 ? [{ lane: "main", frac: 1, cov: rescueMode ? gCov : feesCov + needPos / notional }] : rescueMode ? [{ lane: "arrow", frac: 0.4, cov: gCov }, { lane: "mid", frac: 0.35, cov: gCov }, { lane: "main", frac: 0.25, cov: gCov }] : [
     { lane: "arrow", frac: 0.4, cov: feesCov + Math.max(eps, 0.35 * needPos / notional) },
     { lane: "mid", frac: 0.35, cov: feesCov + 0.7 * needPos / notional },
@@ -5910,44 +5941,48 @@ async function avgRepairTick(p) {
     const pos = S.position;
     if (!(pos.size > 0)) return;
     const ageMin = (Date.now() - (Number(pos.openedAt) || Date.now())) / 6e4;
-    if (ageMin < 45) return;
+    if (ageMin < 30) return;
     const short = pos.side === "short";
     const mult = S.multiplier || 1;
     const avg = pos.entry || 0;
     if (!(avg > 0)) return;
     const adverse = short ? (p - avg) / avg : (avg - p) / avg;
-    const gapMin = Math.max(0.012, (Number(S.config.gridStepPct) || 0.3) / 100 * 4);
-    if (adverse < gapMin) return;
-    if (S.regime && S.regime.shock) return;
+    if (adverse < 0.01) return;
+    if (lastJumpPct() > 1.2) return;
     if (S._noNewEntries) return;
     if (!S._entriesEnabled) return;
     if ((S._avgFixN || 0) >= 4) return;
     if (S._avgFixArmAt && Date.now() - S._avgFixArmAt < 8 * 6e4) return;
     const armed = (S.grid || []).filter((g) => g.lane === "avgfix" && !g.reduceOnly && (g.status === "armed" || g.status === "open"));
     if (armed.length) return;
-    const CB = S.config.cycleBalance || 0;
-    const notional = (pos.size || 0) * mult * avg;
-    const pendN = (S.grid || []).reduce((a, g) => a + (g && !g.reduceOnly && (g.status === "armed" || g.status === "open") ? (g.qty || 0) * mult * (g.price || 0) : 0), 0);
-    const headroomN = CB * 4.2 - notional - pendN;
-    const minAddN = Math.max(5, Math.min(CB * 0.05, 20));
-    if (headroomN < minAddN) {
+    const __why = (m) => {
       if (!S._avgNoAt || Date.now() - S._avgNoAt > 9e5) {
         S._avgNoAt = Date.now();
-        pushLog("server", "\u{1F9E0} \u0644\u0627 \u0647\u0627\u0645\u0634 \u062A\u0639\u0631\u0636 \u0644\u0625\u0635\u0644\u0627\u062D \u0627\u0644\u0645\u062A\u0648\u0633\u0637 (\u0627\u0644\u0645\u0631\u0643\u0632 \u0648\u0623\u0648\u0627\u0645\u0631\u0647 \u0639\u0646\u062F \u0633\u0642\u0641 4.2\xD7) \u2014 \u0639\u0646\u062F 4 \u0633\u0627\u0639\u0627\u062A \u064A\u062A\u0648\u0644\u0649 \u0625\u0646\u0642\u0627\u0630 \u0627\u0644\u062A\u0623\u0631\u062C\u062D \u0628\u0644\u0627 \u0647\u0627\u0645\u0634");
+        pushLog("server", "\u{1F9E0} " + m);
       }
+    };
+    const CB = S.config.cycleBalance || 0;
+    const notional = (pos.size || 0) * mult * avg;
+    const zones = await bounceZones(short);
+    if (!zones || !zones.length) {
+      __why("\u0644\u0627 \u0645\u0646\u0627\u0637\u0642 \u0645\u062E\u062A\u0628\u0631\u0629 \u0628\u0639\u062F \u2014 \u0625\u0635\u0644\u0627\u062D \u0627\u0644\u0645\u062A\u0648\u0633\u0637 \u064A\u0646\u062A\u0638\u0631 \u062F\u0631\u0627\u0633\u0629 \u0627\u0644\u0634\u0645\u0648\u0639");
       return;
     }
-    const zones = await bounceZones(short);
-    if (!zones || !zones.length) return;
-    const exl = S.exLiqPrice || 0;
+    const eqNow = Number(S.exEquity) || 0;
     const pool = zones.filter((z2) => {
       const d = short ? (p - z2.px) / p : (z2.px - p) / p;
-      return short ? d <= 1e-3 && d >= -0.012 : d >= -0.012 && d <= 1e-3;
+      return short ? d <= 1e-3 && d >= -0.025 : d >= -0.025 && d <= 1e-3;
     }).filter((z2) => {
-      if (!(exl > 0)) return true;
-      return short ? z2.px < exl * 0.98 : z2.px > exl * 1.02;
+      if (!(eqNow > 0)) return true;
+      const moveLoss = (short ? Math.max(0, z2.px - p) : Math.max(0, p - z2.px)) * mult * (pos.size || 0);
+      const projEq = eqNow - moveLoss;
+      const floorEq = Math.max(eqNow * 0.2, (S.mmr || 4e-3) * 3 * ((pos.size || 0) * mult * z2.px));
+      return projEq >= floorEq;
     }).filter((z2) => !(S.grid || []).some((g) => !g.reduceOnly && g.origin !== "ladder" && (g.status === "armed" || g.status === "open") && g.price > 0 && Math.abs(g.price - z2.px) / z2.px < 15e-4));
-    if (!pool.length) return;
+    if (!pool.length) {
+      __why("\u0644\u0627 \u0645\u0642\u0627\u0648\u0645\u0629/\u062F\u0639\u0645 \u0645\u062E\u062A\u0628\u0631 \u0636\u0645\u0646 2.5% \u0645\u0646 \u0627\u0644\u0633\u0639\u0631 \u064A\u0646\u062C\u0648 \u0645\u0646 \u062F\u0631\u0639 \u0627\u0644\u062A\u0635\u0641\u064A\u0629 \u0627\u0644\u0643\u0631\u0648\u0633 \u2014 \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u064A\u0646\u062A\u0638\u0631 \u0645\u0646\u0637\u0642\u0629 \u0645\u062F\u0631\u0648\u0633\u0629 \u0642\u0631\u064A\u0628\u0629");
+      return;
+    }
     const ob = S.orderBook || {};
     const lv = short ? ob.asks || [] : ob.bids || [];
     const medL = lv.length >= 8 ? lv.map((x) => +x.size || 0).sort((a, b) => a - b)[Math.floor(lv.length / 2)] || 0 : 0;
@@ -5963,22 +5998,16 @@ async function avgRepairTick(p) {
       return Math.abs(a.px - p) - Math.abs(b.px - p);
     });
     const z = pool[0];
-    for (const g of S.grid || []) {
-      if (g.reduceOnly || g.origin !== "ladder") continue;
-      if (g.status !== "armed" && g.status !== "open") continue;
-      if (g.price > 0 && Math.abs(g.price - z.px) / z.px < 15e-4) {
-        g.status = "cancelled";
-        if (g.exchangeOrderId) {
-          const __id = g.exchangeOrderId;
-          g.exchangeOrderId = null;
-          if (S.config.mode === "live" && S.keys) exCancelOne(__id).catch(() => {
-          });
-        }
-        pushLog("server", "\u{1F9E0} \u0625\u0635\u0644\u0627\u062D \u0627\u0644\u0645\u062A\u0648\u0633\u0637 \u064A\u062D\u0644 \u0645\u062D\u0644 \u0623\u0645\u0631 \u0633\u0644\u0645 \u0645\u0639\u0644\u0642 \u0639\u0646\u062F \u0627\u0644\u0645\u0646\u0637\u0642\u0629 \u0646\u0641\u0633\u0647\u0627 \u2014 \u062D\u062C\u0645 \u0645\u062D\u0633\u0648\u0628 \u0644\u0647\u062F\u0641 \u0627\u0644\u062E\u0631\u0648\u062C \u0628\u062F\u0644 \u0627\u0644\u062D\u062C\u0645 \u0627\u0644\u0639\u0627\u0645");
-      }
-    }
     const px = roundTick(z.px, S.tickSize);
     if (!(px > 0)) return;
+    const repl = (S.grid || []).filter((g) => g && !g.reduceOnly && g.origin === "ladder" && (g.status === "armed" || g.status === "open") && g.price > 0 && Math.abs(g.price - z.px) / z.px < 15e-4);
+    const pendN = (S.grid || []).reduce((a, g) => a + (g && !g.reduceOnly && (g.status === "armed" || g.status === "open") && !repl.includes(g) ? (g.qty || 0) * mult * (g.price || 0) : 0), 0);
+    const headroomN = CB * 4.2 - notional - pendN;
+    const minAddN = Math.max(5, Math.min(CB * 0.05, 20));
+    if (headroomN < minAddN) {
+      __why("\u0644\u0627 \u0647\u0627\u0645\u0634 \u062A\u0639\u0631\u0636 \u0644\u0625\u0635\u0644\u0627\u062D \u0627\u0644\u0645\u062A\u0648\u0633\u0637 (\u0627\u0644\u0645\u0631\u0643\u0632 \u0648\u0623\u0648\u0627\u0645\u0631\u0647 \u0639\u0646\u062F \u0633\u0642\u0641 4.2\xD7) \u2014 \u0639\u0646\u062F 4 \u0633\u0627\u0639\u0627\u062A \u064A\u062A\u0648\u0644\u0649 \u0625\u0646\u0642\u0627\u0630 \u0627\u0644\u062A\u0623\u0631\u062C\u062D \u0628\u0644\u0627 \u0647\u0627\u0645\u0634");
+      return;
+    }
     const maker = S.makerFee || 2e-4, taker = S.takerFee || 6e-4;
     const cov = maker + taker + 4e-4;
     const beNow = avg * (short ? 1 - cov : 1 + cov);
@@ -5997,11 +6026,27 @@ async function avgRepairTick(p) {
     const qCap = Math.max(0, Math.min(Math.floor(headroomN / (mult * px)), Math.floor(roomM * lev / (mult * px))));
     const qFinal = Math.max(0, Math.min(q || qCap, qCap, pos.size || 0, capEntryQty(Math.max(1, q || qCap), px)));
     if (!(qFinal >= 1) || qFinal * mult * px < Math.min(5, CB * 0.99)) {
-      if (!S._avgNoAt || Date.now() - S._avgNoAt > 9e5) {
-        S._avgNoAt = Date.now();
-        pushLog("server", "\u{1F9E0} \u0645\u0642\u0627\u0648\u0645\u0629 \u0645\u062E\u062A\u0628\u0631\u0629 (" + z.touch + " \u0644\u0645\u0633\u0627\u062A) \u0644\u0643\u0646 \u0644\u0627 \u0647\u0627\u0645\u0634 \u0644\u0625\u0635\u0644\u0627\u062D \u0645\u062A\u0648\u0633\u0637 \u0628\u062D\u062C\u0645 \u0645\u0624\u062B\u0631 \u2014 \u0623\u0635\u063A\u0631 \u0623\u0645\u0631 \u062A\u0642\u0628\u0644\u0647 \u0627\u0644\u0645\u0646\u0635\u0629 " + fmtUsd(Math.min(5, CB * 0.99)) + "$");
-      }
+      __why("\u0645\u0642\u0627\u0648\u0645\u0629 \u0645\u062E\u062A\u0628\u0631\u0629 (" + z.touch + " \u0644\u0645\u0633\u0627\u062A) \u0644\u0643\u0646 \u0644\u0627 \u0647\u0627\u0645\u0634 \u0644\u0625\u0635\u0644\u0627\u062D \u0645\u062A\u0648\u0633\u0637 \u0628\u062D\u062C\u0645 \u0645\u0624\u062B\u0631 \u2014 \u0623\u0635\u063A\u0631 \u0623\u0645\u0631 \u062A\u0642\u0628\u0644\u0647 \u0627\u0644\u0645\u0646\u0635\u0629 " + fmtUsd(Math.min(5, CB * 0.99)) + "$");
       return;
+    }
+    if (eqNow > 0) {
+      const moveLoss = (short ? Math.max(0, px - p) : Math.max(0, p - px)) * mult * ((pos.size || 0) + qFinal);
+      const projEq = eqNow - moveLoss;
+      const floorEq = Math.max(eqNow * 0.2, (S.mmr || 4e-3) * 3 * (((pos.size || 0) + qFinal) * mult * px));
+      if (projEq < floorEq) {
+        __why("\u0645\u0646\u0637\u0642\u0629 \u0645\u062E\u062A\u0628\u0631\u0629 \u0645\u0645\u062A\u0627\u0632\u0629 \u0644\u0643\u0646 \u062F\u0631\u0639 \u0627\u0644\u062A\u0635\u0641\u064A\u0629 \u0627\u0644\u0643\u0631\u0648\u0633 \u064A\u0631\u0641\u0636\u0647\u0627 \u2014 \u0631\u0635\u064A\u062F \u0627\u0644\u062D\u0633\u0627\u0628 \u0644\u0627 \u064A\u062D\u062A\u0645\u0644 \u0627\u0644\u062E\u0633\u0627\u0631\u0629 \u062D\u062A\u0649 \u0627\u0644\u0645\u0646\u0637\u0642\u0629 \u0645\u0639 \u0627\u0644\u0625\u0636\u0627\u0641\u0629");
+        return;
+      }
+    }
+    for (const g of repl) {
+      g.status = "cancelled";
+      if (g.exchangeOrderId) {
+        const __id = g.exchangeOrderId;
+        g.exchangeOrderId = null;
+        if (S.config.mode === "live" && S.keys) exCancelOne(__id).catch(() => {
+        });
+      }
+      pushLog("server", "\u{1F9E0} \u0625\u0635\u0644\u0627\u062D \u0627\u0644\u0645\u062A\u0648\u0633\u0637 \u064A\u062D\u0644 \u0645\u062D\u0644 \u0623\u0645\u0631 \u0633\u0644\u0645 \u0645\u0639\u0644\u0642 \u0639\u0646\u062F \u0627\u0644\u0645\u0646\u0637\u0642\u0629 \u0646\u0641\u0633\u0647\u0627 \u2014 \u062D\u062C\u0645 \u0645\u062D\u0633\u0648\u0628 \u0644\u0647\u062F\u0641 \u0627\u0644\u062E\u0631\u0648\u062C \u0628\u062F\u0644 \u0627\u0644\u062D\u062C\u0645 \u0627\u0644\u0639\u0627\u0645");
     }
     const side = short ? "sell" : "buy";
     const entry = {
@@ -7029,13 +7074,9 @@ async function liveSync() {
           pushLog("server", "\u2705 \u0631\u064F\u0641\u0639 \u0627\u0644\u062A\u062C\u0645\u064A\u062F: \u0627\u0644\u0645\u0631\u0627\u0643\u0632 \u0639\u0627\u062F\u062A \u0644\u0644\u062D\u062F \u0627\u0644\u0637\u0628\u064A\u0639\u064A \u2014 \u0627\u0644\u0639\u0648\u062F\u0629 \u0644\u0644\u0639\u0645\u0644");
         }
         try {
-          if (S.exEquity > 0 && (!S._recAt || Date.now() - S._recAt > 6e5)) {
+          if (S.exEquity > 0 && (!S._recAt || Date.now() - S._recAt > 12e4)) {
             S._recAt = Date.now();
-            const fN = typeof FLEET_MODE === "function" && FLEET_MODE() ? 5 : 1;
-            const books = fN * ((S.config.cycleBalance || 0) + (S.realizedPnl || 0) - (S.feesPaid || 0));
-            const gap = S.exEquity - books;
-            if (Math.abs(gap) > Math.max(3, Math.abs(books) * 0.05))
-              pushLog("warn", "\u26A0\uFE0F \u0645\u0637\u0627\u0628\u0642\u0629 \u0627\u0644\u062D\u0633\u0627\u0628: \u062D\u0642\u0648\u0642 \u0627\u0644\u0645\u0646\u0635\u0629 " + fmtUsd(S.exEquity) + " \u0645\u0642\u0627\u0628\u0644 \u062F\u0641\u0627\u062A\u0631 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 " + fmtUsd(books) + " (\u0641\u0627\u0631\u0642 " + fmtUsd(gap) + ") \u2014 \u0627\u0644\u0645\u0646\u0635\u0629 \u0647\u064A \u0627\u0644\u0645\u0631\u062C\u0639 \u0648\u0627\u0644\u062C\u0646\u064A \u064A\u064F\u062D\u062A\u0633\u0628 \u062A\u0646\u0641\u064A\u0630\u0627\u064B \u0645\u0646\u0635\u064A\u0627\u064B \u0641\u0642\u0637");
+            sweepRealizedCapital();
           }
         } catch {
         }
@@ -8086,7 +8127,7 @@ function initEngine() {
 // src/server-entry.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-var SRV_VER = "AB-210-TRQ-1.1.37";
+var SRV_VER = "AB-210-TRQ-1.1.38";
 var FLEET_N = 5;
 var BASE_PORT = 9010;
 var SLOT = parseInt(String(process.env.ABKING_SLOT || ""), 10) || 0;
